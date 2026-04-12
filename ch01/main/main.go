@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"log"
 
 	"github.com/joho/godotenv"
 
@@ -22,6 +23,15 @@ func main() {
 	defer cancel()
 
 	modelConf := shared.NewModelConfig()
+	mode := "sdk-nonstream"
+	if *useRaw && *useStream {
+		mode = "raw-stream"
+	} else if *useRaw {
+		mode = "raw-nonstream"
+	} else if *useStream {
+		mode = "sdk-stream"
+	}
+	log.Printf("[ch01] start mode=%s model=%s base_url=%s api_key_set=%t query_len=%d query=%q", mode, modelConf.Model, modelConf.BaseURL, modelConf.ApiKey != "", len(*query), *query)
 
 	switch {
 	case *useRaw && *useStream:

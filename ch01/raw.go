@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"babyagent/shared"
 )
@@ -50,12 +51,18 @@ type OpenAIChatCompletionStreamChunk struct {
 }
 
 type OpenAIChatCompletionRequest struct {
-	Model    string           `json:"model"`
-	Messages []RequestMessage `json:"messages"`
-	Stream   bool             `json:"stream"`
+	Model         string                  `json:"model"`
+	Messages      []RequestMessage        `json:"messages"`
+	Stream        bool                    `json:"stream"`
+	StreamOptions *OpenAIStreamOptionsReq `json:"stream_options,omitempty"`
+}
+
+type OpenAIStreamOptionsReq struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 func NonStreamingRequestRawHTTP(ctx context.Context, modelConf shared.ModelConfig, query string) {
+	start := time.Now()
 	client := http.Client{}
 
 	requestBody := OpenAIChatCompletionRequest{
@@ -65,9 +72,18 @@ func NonStreamingRequestRawHTTP(ctx context.Context, modelConf shared.ModelConfi
 		Model:  modelConf.Model,
 		Stream: false,
 	}
-	bodyBytes, _ := json.Marshal(requestBody)
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		log.Fatalf("failed to marshal request body: %v", err)
+		return
+	}
+	log.Printf("[ch01][raw][nonstream] request prepared model=%s query_len=%d body_len=%d", modelConf.Model, len(query), len(bodyBytes))
 
-	httpReq, _ := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/chat/completions", modelConf.BaseURL), bytes.NewReader(bodyBytes))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/chat/completions", modelConf.BaseURL), bytes.NewReader(bodyBytes))
+	if err != nil {
+		log.Fatalf("failed to create http request: %v", err)
+		return
+	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+modelConf.ApiKey)
 
@@ -78,6 +94,7 @@ func NonStreamingRequestRawHTTP(ctx context.Context, modelConf shared.ModelConfi
 	}
 	defer httpResp.Body.Close()
 
+	log.Printf("[ch01][raw][nonstream] response status=%d elapsed=%s", httpResp.StatusCode, time.Since(start))
 	if httpResp.StatusCode != 200 {
 		log.Fatalf("failed to send http request: %v", httpResp.StatusCode)
 		return
@@ -94,16 +111,19 @@ func NonStreamingRequestRawHTTP(ctx context.Context, modelConf shared.ModelConfi
 		log.Fatalf("failed to unmarshal http response: %v", err)
 		return
 	}
+	log.Printf("[ch01][raw][nonstream] response parsed choices=%d body_len=%d", len(resp.Choices), len(respBodyBytes))
 
 	if len(resp.Choices) == 0 {
 		log.Printf("no choices returned, resp: %v", resp)
 		return
 	}
+	log.Printf("[ch01][raw][nonstream] resp content len=%d", len(resp.Choices[0].Message.Content))
 	log.Printf("resp content: %s", resp.Choices[0].Message.Content)
 	log.Printf("token usage: %+v", resp.Usage)
 }
 
 func StreamingRequestRawHTTP(ctx context.Context, modelConf shared.ModelConfig, query string) {
+	start := time.Now()
 	client := http.Client{}
 
 	requestBody := OpenAIChatCompletionRequest{
@@ -112,12 +132,25 @@ func StreamingRequestRawHTTP(ctx context.Context, modelConf shared.ModelConfig, 
 		},
 		Model:  modelConf.Model,
 		Stream: true,
+		StreamOptions: &OpenAIStreamOptionsReq{
+			IncludeUsage: true,
+		},
 	}
-	bodyBytes, _ := json.Marshal(requestBody)
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		log.Fatalf("failed to marshal request body: %v", err)
+		return
+	}
+	log.Printf("[ch01][raw][stream] request prepared model=%s query_len=%d body_len=%d", modelConf.Model, len(query), len(bodyBytes))
 
-	httpReq, _ := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/chat/completions", modelConf.BaseURL), bytes.NewReader(bodyBytes))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/chat/completions", modelConf.BaseURL), bytes.NewReader(bodyBytes))
+	if err != nil {
+		log.Fatalf("failed to create http request: %v", err)
+		return
+	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+modelConf.ApiKey)
+	log.Printf("[ch01][raw][stream] request sent")
 
 	httpResp, err := client.Do(httpReq)
 	if err != nil {
@@ -126,14 +159,22 @@ func StreamingRequestRawHTTP(ctx context.Context, modelConf shared.ModelConfig, 
 	}
 	defer httpResp.Body.Close()
 
+	log.Printf("[ch01][raw][stream] response status=%d elapsed=%s", httpResp.StatusCode, time.Since(start))
 	if httpResp.StatusCode != 200 {
 		log.Fatalf("failed to send http request: %v", httpResp.StatusCode)
 		return
 	}
 
 	scanner := bufio.NewScanner(httpResp.Body)
+	lineCount := 0
+	chunkCount := 0
+	doneReceived := false
+	outputLen := 0
+	var finalUsage *Usage
+	log.Printf("[ch01][raw][stream] streaming output begin")
 	for scanner.Scan() {
 		line := scanner.Text()
+		lineCount++
 
 		if line == "" {
 			continue
@@ -143,6 +184,7 @@ func StreamingRequestRawHTTP(ctx context.Context, modelConf shared.ModelConfig, 
 			v := strings.TrimPrefix(line, "data:")
 
 			if strings.TrimSpace(v) == "[DONE]" {
+				doneReceived = true
 				break
 			}
 
@@ -151,15 +193,29 @@ func StreamingRequestRawHTTP(ctx context.Context, modelConf shared.ModelConfig, 
 				log.Fatalf("failed to unmarshal chunk: %v", err)
 				return
 			}
-			log.Printf("stream chunk: %s", v)
+			chunkCount++
+			for _, c := range chunk.Choices {
+				piece := c.Delta.Content
+				if piece != "" {
+					fmt.Print(piece)
+					outputLen += len(piece)
+				}
+			}
 			if chunk.Usage != nil {
-				log.Printf("token usage: %+v", chunk.Usage)
+				finalUsage = chunk.Usage
 			}
 		}
 	}
 
 	if scanner.Err() != nil {
-		log.Fatalf("failed to read http response: %v", err)
+		log.Fatalf("failed to read http response: %v", scanner.Err())
 		return
 	}
+	if outputLen > 0 {
+		fmt.Println()
+	}
+	if finalUsage != nil {
+		log.Printf("token usage: %+v", finalUsage)
+	}
+	log.Printf("[ch01][raw][stream] stream finished elapsed=%s lines=%d chunks=%d output_len=%d done=%t", time.Since(start), lineCount, chunkCount, outputLen, doneReceived)
 }
