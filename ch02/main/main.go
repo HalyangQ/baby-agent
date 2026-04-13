@@ -24,6 +24,7 @@ func main() {
 	modelConf := shared.NewModelConfig()
 
 	agent := ch02.NewAgent(modelConf, ch02.CodingAgentSystemPrompt, []tool.Tool{
+		tool.NewListTool(),
 		tool.NewReadTool(),
 		tool.NewEditTool(),
 		tool.NewWriteTool(),

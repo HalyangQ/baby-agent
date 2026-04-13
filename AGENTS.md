@@ -44,3 +44,32 @@ Use Go 1.25+.
 ## Security & Configuration Tips
 - Never commit secrets; keep keys in `.env` only.
 - Use `.env.example` as the template for required variables (`OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`).
+
+## Learning Notes Style
+- Learning notes should be kept in standalone chapter files such as `ch01/LEARNING_QA.md`, not appended to chapter `README.md`.
+- Each chapter note should start with a learning guide section, then a Q&A section.
+- The learning guide should include:
+  - what to learn in the chapter,
+  - what to run or operate,
+  - what knowledge should be mastered after finishing,
+  - extension reading summary,
+  - what to focus on in the extension reading.
+- Extension reading should keep original source links and include additional takeaways from reading the source material, not just a restatement of the local code.
+- Q&A entries should record the user's questions and the assistant's answers, but should not record code change logs.
+- Each Q&A entry should use this structure:
+  - `一句总结`
+  - `详细回答`
+- Question titles may be lightly normalized into study-note phrasing, but must preserve the original meaning.
+- Especially important entries should use a `[重点]` prefix in the title. Do not rely on color styling.
+- Formatting rules for learning notes:
+  - Prefer a single-level bullet list with complete sentences.
+  - Bullet subpoints are allowed only when the content is clearly an enumeration of parallel items.
+  - Do not overuse nested bullets.
+  - Bullet headings should use meaningful labels, not vague labels like “第一步” or “第二步”.
+  - Bullet headings should be bold.
+  - Bullet headings and content should not stay on the same visual line; use Markdown-compatible line breaks so preview rendering is correct.
+  - Do not mechanically turn every paragraph into fragmented bullets.
+- Writing style rules for learning notes:
+  - Stay close to the original explanatory logic used in the conversation instead of aggressively compressing or abstracting it.
+  - Avoid over-abstract summaries when the user prefers the original reasoning flow.
+  - Use fuller sentences instead of many short fragments, while still preserving readable structure.

@@ -13,6 +13,7 @@ const (
 	AgentToolWrite AgentTool = "write"
 	AgentToolEdit  AgentTool = "edit"
 	AgentToolBash  AgentTool = "bash"
+	AgentToolList  AgentTool = "list_dir"
 )
 
 type Tool interface {
