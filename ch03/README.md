@@ -3,7 +3,7 @@
 欢迎来到第三章！在第二章的基础上，本章继续完善一个更“可观察”的 Agent：
 
 - **可视化展示推理与工具调用过程**（便于调试）
-- **兼容推理模型的 `reasoning_content` 字段**
+- **兼容推理模型的 `reasoning_content` / `reasoning` / `thinking` 字段**
 
 本章依旧保留最小 Agent Loop 的结构，但在“输出可观察性”和“工具生态扩展性”上向前迈了一步。
 
@@ -11,7 +11,7 @@
 
 ## 🎯 你将学到什么
 
-1. **推理字段兼容处理**：如何从流式响应中解析 `reasoning_content`（以及不同厂商字段差异的处理思路）。
+1. **推理字段兼容处理**：如何从流式响应中解析 `reasoning_content`、`reasoning`、`thinking`（以及不同厂商字段差异的处理思路）。
 2. **TUI 可视化层**：用 Bubble Tea 实现一个轻量的可视化输出（这不是本课重点，仅为后续调试服务）。
 
 ---
@@ -24,6 +24,14 @@
 OPENAI_API_KEY=sk-your-api-key-here
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-5.2
+```
+
+如果你本地使用的是 Ollama + Qwen3，可以改成：
+
+```env
+OPENAI_API_KEY=ollama
+OPENAI_BASE_URL=http://localhost:11434/v1
+OPENAI_MODEL=qwen3:8b
 ```
 
 此外，本章默认在 `mcp-server.json` 中配置了一个 MCP 文件系统服务器（基于 `@modelcontextprotocol/server-filesystem`）。这需要本地能够运行 `npx`（通常意味着安装 Node.js）。
@@ -42,12 +50,13 @@ OPENAI_MODEL=gpt-5.2
 
 部分“推理模型”在流式响应里会返回额外的推理字段，用于展示中间思考过程。**但不同厂商字段命名不一致**，常见情况包括：
 
-- `reasoning_content`（本章直接处理）
-- `reasoning` / `thinking` 等（需按供应商实际字段做兼容）
+- `reasoning_content`（OpenAI 兼容推理接口常见）
+- `reasoning`（例如 Ollama 的 OpenAI 兼容接口）
+- `thinking`（例如 Ollama 原生接口）
 
-`ch03/agent.go` 中的 `RunStreaming` 通过 `RawJSON()` 解析增量消息，尝试抽取 `reasoning_content`，并将其单独作为 `MessageTypeReasoning` 发送给 TUI。这样就能把“推理过程”和“最终内容”分开显示，利于调试与对齐。
+`ch03/agent.go` 中的 `RunStreaming` 通过 `RawJSON()` 解析增量消息，尝试抽取 `reasoning_content`、`reasoning`、`thinking`，并将其单独作为 `MessageTypeReasoning` 发送给 TUI。这样就能把“推理过程”和“最终内容”分开显示，利于调试与对齐。
 
-> 注意：本章只演示了 `reasoning_content` 的处理方式。如果你接入的是其他厂商或自建模型，需要根据其文档调整字段名和解析逻辑。
+> 例如，本地使用 Ollama 跑 `qwen3` 时，OpenAI 兼容接口通常返回 `reasoning`；若直接调用 Ollama 原生接口，则常见字段名为 `thinking`。
 
 相关代码：`ch03/agent.go`
 
@@ -127,7 +136,7 @@ if isReasoningModel(modelName) {
 **2. Template 解析的兼容性**
 
 ```go
-// 解析流式响应时，需要区分 reasoning_content 和 content
+// 解析流式响应时，需要区分 reasoning_content / reasoning / thinking 和 content
 if chunk.ReasoningContent != nil {
     // 推理模型：显示在推理区域
     displayInThinkingArea(*chunk.ReasoningContent)
@@ -150,6 +159,7 @@ if chunk.Content != nil {
 |---------|-----------------|--------------|
 | **OpenAI o1/o3** | `reasoning_content` | 内置格式，无需特殊标签 |
 | **DeepSeek-R1** | `reasoning_content` | 兼容 OpenAI 格式 |
+| **Ollama + Qwen3** | `reasoning` / `thinking` | 取决于 OpenAI 兼容接口或原生接口 |
 | **自建推理模型** | 自定义字段 | 需根据文档调整解析逻辑 |
 
 ---
@@ -175,7 +185,7 @@ if chunk.Content != nil {
 
 ## 💻 代码结构速览
 
-- `ch03/agent.go`：增强后的 Agent Loop（流式 + reasoning 解析 + MCP 支持）
+- `ch03/agent.go`：增强后的 Agent Loop（流式 + 多种 reasoning 字段解析 + MCP 支持）
 - `ch03/tui/tui.go`：Bubble Tea TUI 可视化界面
 
 ---

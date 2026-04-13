@@ -119,25 +119,25 @@
 *   **技能管理器**：自动发现和加载技能元数据
 *   **load_skill 工具**：LLM 按需加载完整技能内容
 
+### 第十章：Web 服务化与 SSE 流式传输
+
+**目标**：将 CLI Agent 剥离 TUI，封装成 HTTP 服务，让浏览器也能像 ChatGPT 一样与 Agent 流式对话。
+
+*   **Agent 与传输层解耦**：Agent 内部用 `StreamEvent` channel 输出事件，不感知任何 HTTP 概念；HTTP 层负责把事件转成 SSE 格式推给客户端
+*   **SSE 流式传输**：Server-Sent Events 服务端实现，Goroutine + Channel 的并发架构
+*   **会话与消息持久化**：SQLite 存储 Conversation / ChatMessage，`Rounds` 字段序列化完整 LLM 消息
+*   **树形对话历史**：每条消息记录 `parent_message_id`，`buildHistory` 沿祖先链追溯重建 LLM context
+
+### 第十一章：Agent 可观测性（Observability）🚧
+
+**目标**：让 Agent 的每次执行都透明、可追溯，从「能用」走向「可运维」。
+
+*   **Trace/Span 模型**：一次 Query = 一条 Trace，一次 Tool Call = 一个 Span，构建完整的执行调用树
+*   **Agent 专属指标**：First Token Time（首 Token 延迟）、Tokens Per Minute（生成速度）、Token Usage（消耗统计）
+*   **Span 属性设计**：为 LLM 调用、工具执行等操作设计有意义的可查询属性
+*   **可观测性后端**：OpenTelemetry + Jaeger/Tempo + Prometheus + Grafana 完整链路
+
 ---
-
-### 第十章：Web 服务化与 SSE 流式传输🚧
-
-**目标**：将 CLI 核心逻辑剥离，搬运到服务端运行。
-
-*   **HTTP API 封装**：设计 RESTful API 接口
-*   **Server-Sent Events**：像 ChatGPT 一样向前端推送流式响应
-*   **并发管理**：处理多用户同时请求
-*   **中间件设计**：认证、限流、日志等
-
-### 第十一章：服务端状态管理🚧
-
-**目标**：突破单机运行的局限，管理多用户的对话 Session。
-
-*   **Session 管理**：设计会话存储与恢复机制
-*   **历史上下文持久化**：将对话历史存储到数据库
-*   **多租户隔离**：确保不同用户的数据隔离
-*   **状态同步**：处理分布式环境下的状态一致性问题
 
 ### 第十二章：Agent 评测与自动化测试（LLM Eval）🚧
 
@@ -147,15 +147,6 @@
 *   **评测数据集**：构建标准测试用例
 *   **自动化评测指标**：响应时间、Token 消耗、准确率等
 *   **Prompt 优化量化**：对比不同 Prompt 版本的实际收益
-
-### 第十三章：生产化要点讲解（可观测性 Observability）🚧
-
-**目标**：讲清楚把 Agent 推向生产时需要补齐的可观测性与工程化能力
-
-*   **分布式追踪（Trace）**：监控 Agent 复杂的推理和工具调用链路
-*   **结构化日志（Log）**：记录关键事件，便于问题排查
-*   **性能指标（Metrics）**：监控请求量、延迟、错误率等
-*   **告警机制**：及时发现"幻觉"和性能瓶颈
 
 ---
 
@@ -199,10 +190,9 @@ baby-agent/
 ├── ch07/           # ✅ 第七章：Agentic RAG
 ├── ch08/           # ✅ 第八章：沙盒与安全防御
 ├── ch09/           # ✅ 第九章：Agent 技能插件
-├── ch10/           # 🚧 第十章：Web 服务化与 SSE 流式传输（规划中）
-├── ch11/           # 🚧 第十一章：服务端状态管理（规划中）
+├── ch10/           # ✅ 第十章：Web 服务化与 SSE 流式传输
+├── ch11/           # 🚧 第十一章：Agent 可观测性（规划中）
 ├── ch12/           # 🚧 第十二章：Agent 评测与自动化测试（规划中）
-├── ch13/           # 🚧 第十三章：生产环境保障（规划中）
 ├── shared/         # 共享代码（配置、MCP 等）
 ├── .env            # 环境变量配置
 └── README.md       # 本文件
@@ -238,6 +228,9 @@ go run ./ch08/main
 
 # 第九章：技能插件
 go run ./ch09/main
+
+# 第十章：Web 服务（监听 :8080）
+go run ./ch10/main
 ```
 
 第七章是独立的索引和工具实现，可参考 `ch07/README.md` 中的使用示例。

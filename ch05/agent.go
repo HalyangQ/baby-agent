@@ -117,19 +117,23 @@ func (a *Agent) RunStreaming(ctx context.Context, query string, viewCh chan Mess
 
 			if len(chunk.Choices) > 0 {
 				deltaRaw := chunk.Choices[0].Delta
-				// 推理模型会返回 reasoning_content（有些模型使用 reasoning 字段）
-				delta := deltaWithReasoning{}
-				_ = json.Unmarshal([]byte(deltaRaw.RawJSON()), &delta)
-				if reasoningContent := delta.ReasoningContent; reasoningContent != "" {
+				// 不同厂商会把推理内容放在 reasoning_content、reasoning 或 thinking 字段里。
+				delta, err := parseDeltaWithReasoning(deltaRaw.RawJSON())
+				if err != nil {
+					log.Printf("parse delta failed, raw=%s, err=%v", deltaRaw.RawJSON(), err)
+					continue
+				}
+				if reasoningContent := delta.ReasoningText(); reasoningContent != "" {
 					viewCh <- MessageVO{
 						Type:             MessageTypeReasoning,
 						ReasoningContent: &reasoningContent,
 					}
 				}
 				if delta.Content != "" {
+					content := delta.Content
 					viewCh <- MessageVO{
 						Type:    MessageTypeContent,
-						Content: &chunk.Choices[0].Delta.Content,
+						Content: &content,
 					}
 				}
 			}
@@ -193,4 +197,23 @@ func (a *Agent) RunStreaming(ctx context.Context, query string, viewCh chan Mess
 type deltaWithReasoning struct {
 	Content          string `json:"content"`
 	ReasoningContent string `json:"reasoning_content"`
+	Reasoning        string `json:"reasoning"`
+	Thinking         string `json:"thinking"`
+}
+
+func parseDeltaWithReasoning(rawJSON string) (deltaWithReasoning, error) {
+	delta := deltaWithReasoning{}
+	err := json.Unmarshal([]byte(rawJSON), &delta)
+	return delta, err
+}
+
+func (d deltaWithReasoning) ReasoningText() string {
+	switch {
+	case d.ReasoningContent != "":
+		return d.ReasoningContent
+	case d.Reasoning != "":
+		return d.Reasoning
+	default:
+		return d.Thinking
+	}
 }
