@@ -308,8 +308,7 @@
   用户意图明明是“列出最近修改的几个文件”，预期调用应当是 `list_dir {"path": ".", "sort_by": "modified_time", "sort_order": "desc", "max_entries": 5}`，但模型实际先调用了 `list_dir {"path": ".", "sort_by": "modified_time"}`，随后又补了一次 `bash {"command": "ls -lt | head -20"}`。
 - **说明：**  
   这说明模型没有完全相信 `list_dir` 一次就能满足这个任务，而是把 `bash` 当成了更强的兜底工具，去补足“最近修改”这个需求。
-- **可能原因：**  
-  这通常不是单一的 schema 问题，而是几件事叠加：
+- **可能原因：** 这通常不是单一的 schema 问题，而是几件事叠加：
   - `list_dir` 的输出里没有修改时间，只返回文件名，模型难以确认结果是否真的体现“最近修改”。
   - `sort_by = modified_time` 只表达了排序字段，没有表达排序方向，而用户真正想要的是“最新在前”。
   - `max_entries` 虽然存在，但不是必填，模型未必稳定把“几个文件”映射成具体数量。
@@ -323,14 +322,12 @@
 详细回答：
 - **工具选择问题：**  
   先判断是“选错工具”还是“用错工具”。选错工具，是本该调 `list_dir` 却去调了 `bash`；用错工具，是工具选对了，但参数错了，或者结果没法满足用户意图。这是排查的第一刀，因为这两类问题后续方向完全不同。
-- **问题分层：**  
-  再看问题落在哪一层：
+- **问题分层：** 再看问题落在哪一层：
   - 用户意图表达层，query 本身含糊，比如“最近几个文件”到底是 5 个还是 10 个。
   - Prompt/策略层，系统提示没有明确“优先用专用工具，不要轻易 fallback 到 bash”。
   - Tool schema 层，参数设计不贴近任务语义，描述不清，枚举、必填和默认值不合理。
   - Tool 执行与输出层，执行结果不够可信、缺关键字段，或者返回格式不利于下一轮推理。
-- **观察点：**  
-  真正 debug 时，固定看 5 个观察点最有效：
+- **观察点：** 真正 debug 时，固定看 5 个观察点最有效：
   - 用户 query 有没有歧义。
   - 发给模型的 `tools` 定义是否足够清楚，尤其是 `description`、`parameters`、`enum`、`required`。
   - 模型实际返回了什么 `tool_calls`，参数具体怎么传。
@@ -356,8 +353,7 @@
   更稳的设计通常是把 `max_entries` 保持可选，但不传时不要真返回全量，而是返回一个安全默认值，比如 `50`，同时在返回里显式说明是否被截断，例如 `truncated=true, returned=50, total=312`。这样模型不传时不会炸，用户明确要更多时，模型也可以再调一次，显式请求更大的 `max_entries`。
 - **description 的作用：**  
   还有一个很重要的点，是在 description 里把默认行为写得非常明确。这比改系统 prompt 更直接有效，因为这是 tool-local 语义。比如你可以把 `max_entries` 描述成：“If omitted, the tool returns up to 50 entries by default. Use a small number for requests like 'a few files'.” 系统 prompt 更适合补全局原则，例如“Prefer bounded tool calls over unbounded output”或者“When the user asks for a few/recent/top items, pass an explicit limit”。
-- **模糊语义映射：**  
-  如果你想让行为更稳定，还可以给模糊语义做产品约定，例如：
+- **模糊语义映射：** 如果你想让行为更稳定，还可以给模糊语义做产品约定，例如：
   - “几个”默认映射成 `5`。
   - “一些”默认映射成 `10`。
   - “前几个”默认映射成 `5`。

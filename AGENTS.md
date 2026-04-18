@@ -60,6 +60,7 @@ Use Go 1.25+.
   - `一句总结`
   - `详细回答`
 - Question titles may be lightly normalized into study-note phrasing, but must preserve the original meaning.
+- When adding new questions, maintain a coherent learning order: foundational concepts should appear before derived design questions, and later insertions should be placed where they best fit the chapter’s reasoning flow rather than only appended at the end.
 - Especially important entries should use a `[重点]` prefix in the title. Do not rely on color styling.
 - Formatting rules for learning notes:
   - Prefer a single-level bullet list with complete sentences.
@@ -69,7 +70,14 @@ Use Go 1.25+.
   - Bullet headings should be bold.
   - Bullet headings and content should not stay on the same visual line; use Markdown-compatible line breaks so preview rendering is correct.
   - Do not mechanically turn every paragraph into fragmented bullets.
+- Learning focus rules:
+  - Do not stop at code-level walkthroughs when the user is clearly asking about the underlying capability or system concept. Map chapter code to three layers when useful: implementation layer, model/capability layer, and industry/research layer.
+  - Prioritize explaining conceptual boundaries and comparisons, especially questions of the form “what is this”, “why does it exist”, “how is it different from related ideas”, and “what does this imply about the underlying model/system”.
+  - Distinguish clearly between observable behavior in the code or API, officially documented product/model behavior, and speculative but plausible implementation inferences. Do not blur these categories.
+  - When a chapter touches frontier concepts like reasoning, tool use, memory, context, or agent loops, use the project as the main thread but connect it to real model families, system designs, and important papers so the notes form a transferable mental model.
 - Writing style rules for learning notes:
   - Stay close to the original explanatory logic used in the conversation instead of aggressively compressing or abstracting it.
   - Avoid over-abstract summaries when the user prefers the original reasoning flow.
   - Use fuller sentences instead of many short fragments, while still preserving readable structure.
+  - Default to explaining “why”, not just “what”: capture the reasoning behind design choices, tradeoffs, failure modes, and why an approach is or is not appropriate.
+  - When summarizing a concept, prefer including the causal logic or engineering rationale, so the notes help with transfer learning rather than rote recall.
