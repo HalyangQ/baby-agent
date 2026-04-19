@@ -21,9 +21,20 @@ type Engine struct {
 	systemPromptTemplate string
 	messages             []messageWrap
 	policies             []Policy
-	onPolicyEvent        func(policyName string, running bool, err error)
+	onPolicyEvent        func(event PolicyEvent)
 	contextTokens        int
 	contextWindow        int
+}
+
+type PolicyEvent struct {
+	Name           string
+	Running        bool
+	Error          error
+	Summary        string
+	BeforeMessages int
+	AfterMessages  int
+	BeforeTokens   int
+	AfterTokens    int
 }
 
 type TokenBudget struct {
@@ -32,6 +43,20 @@ type TokenBudget struct {
 
 type Usage struct {
 	PromptTokens int
+}
+
+type DebugPolicyStat struct {
+	Name        string
+	Threshold   float64
+	Description string
+}
+
+type DebugStats struct {
+	MessageCount  int
+	ContextTokens int
+	ContextWindow int
+	ContextUsage  float64
+	Policies      []DebugPolicyStat
 }
 
 type TurnDraft struct {
@@ -108,12 +133,30 @@ func (c *Engine) applyPolicies(ctx context.Context) error {
 		if !policy.ShouldApply(ctx, c) {
 			continue
 		}
+		beforeMessages := len(c.messages)
+		beforeTokens := c.contextTokens
 		if c.onPolicyEvent != nil {
-			c.onPolicyEvent(policy.Name(), true, nil)
+			c.onPolicyEvent(PolicyEvent{
+				Name:           policy.Name(),
+				Running:        true,
+				BeforeMessages: beforeMessages,
+				BeforeTokens:   beforeTokens,
+				AfterMessages:  beforeMessages,
+				AfterTokens:    beforeTokens,
+			})
 		}
 		result, err := policy.Apply(ctx, c)
 		if c.onPolicyEvent != nil {
-			c.onPolicyEvent(policy.Name(), false, err)
+			c.onPolicyEvent(PolicyEvent{
+				Name:           policy.Name(),
+				Running:        false,
+				Error:          err,
+				Summary:        result.Summary,
+				BeforeMessages: beforeMessages,
+				AfterMessages:  len(result.Messages),
+				BeforeTokens:   beforeTokens,
+				AfterTokens:    result.ContextTokens,
+			})
 		}
 		if err != nil {
 			return fmt.Errorf("apply policy %s: %w", policy.Name(), err)
@@ -124,7 +167,7 @@ func (c *Engine) applyPolicies(ctx context.Context) error {
 	return nil
 }
 
-func (c *Engine) SetPolicyEventHook(hook func(policyName string, running bool, err error)) {
+func (c *Engine) SetPolicyEventHook(hook func(event PolicyEvent)) {
 	c.onPolicyEvent = hook
 }
 
@@ -147,4 +190,43 @@ func (c *Engine) BuildSystemPrompt() string {
 func (c *Engine) Reset() {
 	c.messages = make([]messageWrap, 0)
 	c.contextTokens = 0
+}
+
+func (c *Engine) DebugStats() DebugStats {
+	stats := DebugStats{
+		MessageCount:  len(c.messages),
+		ContextTokens: c.contextTokens,
+		ContextWindow: c.contextWindow,
+		ContextUsage:  c.GetContextUsage(),
+		Policies:      make([]DebugPolicyStat, 0, len(c.policies)),
+	}
+	for _, policy := range c.policies {
+		stats.Policies = append(stats.Policies, describePolicy(policy))
+	}
+	return stats
+}
+
+func describePolicy(policy Policy) DebugPolicyStat {
+	switch p := policy.(type) {
+	case *TruncatePolicy:
+		return DebugPolicyStat{
+			Name:        p.Name(),
+			Threshold:   p.UsageThreshold,
+			Description: fmt.Sprintf("keep_recent=%d", p.KeepRecentMessages),
+		}
+	case *OffloadPolicy:
+		return DebugPolicyStat{
+			Name:        p.Name(),
+			Threshold:   p.UsageThreshold,
+			Description: fmt.Sprintf("keep_recent=%d, preview_chars=%d", p.KeepRecentMessages, p.PreviewCharLimit),
+		}
+	case *SummaryPolicy:
+		return DebugPolicyStat{
+			Name:        p.Name(),
+			Threshold:   p.UsageThreshold,
+			Description: fmt.Sprintf("keep_recent=%d, batch_size=%d", p.KeepRecentMessages, p.SummaryBatchSize),
+		}
+	default:
+		return DebugPolicyStat{Name: policy.Name()}
+	}
 }

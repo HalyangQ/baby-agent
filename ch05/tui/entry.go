@@ -8,10 +8,11 @@ import (
 )
 
 var (
-	reasonStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
-	toolStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
-	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	policyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("228")).Bold(true)
+	reasonStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	toolStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
+	errorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	policyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("228")).Bold(true)
+	contextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("111"))
 )
 
 // LogEntry 日志条目结构体
@@ -56,15 +57,24 @@ func NewPolicyRunning(name string) LogEntry {
 	return LogEntry{Title: "上下文策略", Content: fmt.Sprintf("%s (运行中...)", name), Style: policyStyle}
 }
 
+func NewContext(content string) LogEntry {
+	return LogEntry{Title: "上下文", Content: content, Style: contextStyle}
+}
+
 // UpdatePolicyCompleted 更新策略 log entry 为完成状态
-func (e *LogEntry) UpdatePolicyCompleted(success bool) {
+func (e *LogEntry) UpdatePolicyCompleted(success bool, summary string, beforeMessages, afterMessages, beforeTokens, afterTokens int) {
 	status := "已完成"
 	if !success {
 		status = "已失败"
 	}
 	// 移除 " (运行中...)" 后缀并替换为完成状态
 	e.Content = strings.Replace(e.Content, " (运行中...)", "", 1)
-	e.Content = fmt.Sprintf("%s (%s)", e.Content, status)
+	details := fmt.Sprintf("messages %d->%d, tokens %d->%d", beforeMessages, afterMessages, beforeTokens, afterTokens)
+	if summary != "" {
+		e.Content = fmt.Sprintf("%s (%s, %s): %s", e.Content, status, details, summary)
+		return
+	}
+	e.Content = fmt.Sprintf("%s (%s, %s)", e.Content, status, details)
 }
 
 // NewBorder 创建分隔线

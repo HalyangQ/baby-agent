@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
+	"strings"
 
 	"github.com/openai/openai-go/v3"
 
@@ -80,15 +82,44 @@ func (a *Agent) ResetSession() {
 	a.contextEngine.Reset()
 }
 
+func (a *Agent) DebugContext() string {
+	stats := a.contextEngine.DebugStats()
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("messages=%d, tokens=%d, context_window=%d, usage=%.2f%%",
+		stats.MessageCount,
+		stats.ContextTokens,
+		stats.ContextWindow,
+		stats.ContextUsage*100,
+	))
+	if len(stats.Policies) > 0 {
+		b.WriteString("\n")
+		b.WriteString("policies:")
+		for _, policy := range stats.Policies {
+			b.WriteString("\n")
+			b.WriteString(fmt.Sprintf("- %s: threshold=%.2f", policy.Name, policy.Threshold))
+			if policy.Description != "" {
+				b.WriteString(", ")
+				b.WriteString(policy.Description)
+			}
+		}
+	}
+	return b.String()
+}
+
 // RunStreaming 和 Run 基本逻辑一致，但是使用流式请求，并且通过 channel 实现流式输出
 func (a *Agent) RunStreaming(ctx context.Context, query string, viewCh chan MessageVO) error {
-	a.contextEngine.SetPolicyEventHook(func(policyName string, running bool, err error) {
+	a.contextEngine.SetPolicyEventHook(func(event ctxengine.PolicyEvent) {
 		viewCh <- MessageVO{
 			Type: MessageTypePolicy,
 			Policy: &PolicyVO{
-				Name:    policyName,
-				Running: running,
-				Error:   err,
+				Name:           event.Name,
+				Running:        event.Running,
+				Error:          event.Error,
+				Summary:        event.Summary,
+				BeforeMessages: event.BeforeMessages,
+				AfterMessages:  event.AfterMessages,
+				BeforeTokens:   event.BeforeTokens,
+				AfterTokens:    event.AfterTokens,
 			},
 		}
 	})

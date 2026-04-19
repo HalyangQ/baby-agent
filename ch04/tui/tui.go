@@ -128,11 +128,20 @@ func NewModel(agent *ch04.Agent, modelName string) *TuiViewModel {
 	vp.SoftWrap = true
 	vp.MouseWheelEnabled = false
 
+	toolInfos := agent.DebugTools()
+	mcpToolCount := 0
+	for _, info := range toolInfos {
+		if strings.HasPrefix(info.Source, "mcp:") {
+			mcpToolCount++
+		}
+	}
+
 	return &TuiViewModel{
 		modelName:    modelName,
 		agent:        agent,
 		logs:         make([]LogEntry, 0),
 		logsViewport: vp,
+		notice:       fmt.Sprintf("已加载 %d 个工具，其中 %d 个来自 MCP。输入 /tools 查看详情。", len(toolInfos), mcpToolCount),
 	}
 }
 
@@ -257,8 +266,36 @@ func (m *TuiViewModel) handleSubmit() (tea.Model, tea.Cmd) {
 		m.clearSession()
 		return m, nil
 	}
+	if query == "/tools" {
+		m.showAvailableTools()
+		return m, nil
+	}
 
 	return m.startNewTurn(query)
+}
+
+func (m *TuiViewModel) showAvailableTools() {
+	toolInfos := m.agent.DebugTools()
+	if len(toolInfos) == 0 {
+		m.logs = append(m.logs, NewLabel("当前没有可用工具。"))
+		m.notice = "未发现可用工具。"
+		m.refreshLogsViewportContent()
+		return
+	}
+
+	lines := make([]string, 0, len(toolInfos)+1)
+	lines = append(lines, "当前已加载工具：")
+	for _, info := range toolInfos {
+		line := fmt.Sprintf("- [%s] %s", info.Source, info.Name)
+		if info.Description != "" {
+			line += fmt.Sprintf("\n  description: %s", info.Description)
+		}
+		lines = append(lines, line)
+	}
+
+	m.logs = append(m.logs, NewLabel(strings.Join(lines, "\n")))
+	m.notice = fmt.Sprintf("共 %d 个工具，详情已输出到日志区。", len(toolInfos))
+	m.refreshLogsViewportContent()
 }
 
 func (m *TuiViewModel) handleStreamEvent(event ch04.MessageVO) {
@@ -494,7 +531,7 @@ func (m *TuiViewModel) View() tea.View {
 	b.WriteString("\n")
 	b.WriteString(footerStyle.Render("快捷键: Ctrl+C 退出，Esc 取消当前流式"))
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render("命令: /clear 清空会话"))
+	b.WriteString(footerStyle.Render("命令: /clear 清空会话, /tools 查看已加载工具"))
 	if m.notice != "" {
 		b.WriteString("\n")
 		b.WriteString(noticeStyle.Render(m.notice))

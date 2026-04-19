@@ -2,6 +2,7 @@ package context
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	"github.com/openai/openai-go/v3"
@@ -42,6 +43,7 @@ func (p *SummaryPolicy) Apply(ctx context.Context, engine *Engine) (PolicyResult
 		return PolicyResult{
 			Messages:      engine.messages,
 			ContextTokens: engine.contextTokens,
+			Summary:       "message count within keepRecent threshold; nothing summarized",
 		}, nil
 	}
 
@@ -49,6 +51,7 @@ func (p *SummaryPolicy) Apply(ctx context.Context, engine *Engine) (PolicyResult
 	inputTokenLimit := p.Summarizer.GetSummaryInputTokenLimit()
 
 	accumulatedSummary := ""
+	batchCount := 0
 
 	// 计算被替换消息的总 token 数
 	removedTokens := 0
@@ -91,6 +94,7 @@ func (p *SummaryPolicy) Apply(ctx context.Context, engine *Engine) (PolicyResult
 
 		accumulatedSummary = batchSummary
 		batchStart += len(batchMessages)
+		batchCount++
 	}
 
 	if len(accumulatedSummary) == 0 {
@@ -98,6 +102,7 @@ func (p *SummaryPolicy) Apply(ctx context.Context, engine *Engine) (PolicyResult
 		return PolicyResult{
 			Messages:      engine.messages,
 			ContextTokens: engine.contextTokens,
+			Summary:       "summarizer returned empty summary; kept original messages",
 		}, nil
 	}
 
@@ -114,5 +119,6 @@ func (p *SummaryPolicy) Apply(ctx context.Context, engine *Engine) (PolicyResult
 	return PolicyResult{
 		Messages:      messages,
 		ContextTokens: engine.contextTokens - removedTokens + newTokens,
+		Summary:       fmt.Sprintf("summarized %d messages into 1 summary over %d batches", summarizeUntilIndex, batchCount),
 	}, nil
 }

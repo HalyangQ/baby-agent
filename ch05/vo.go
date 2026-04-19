@@ -20,9 +20,14 @@ type MessageVO struct {
 
 // PolicyVO 策略执行状态
 type PolicyVO struct {
-	Name    string `json:"name"`    // 策略名称
-	Running bool   `json:"running"` // 是否正在执行
-	Error   error  `json:"error"`
+	Name           string `json:"name"`    // 策略名称
+	Running        bool   `json:"running"` // 是否正在执行
+	Error          error  `json:"error"`
+	Summary        string `json:"summary,omitempty"`
+	BeforeMessages int    `json:"before_messages,omitempty"`
+	AfterMessages  int    `json:"after_messages,omitempty"`
+	BeforeTokens   int    `json:"before_tokens,omitempty"`
+	AfterTokens    int    `json:"after_tokens,omitempty"`
 }
 
 type ToolCallVO struct {

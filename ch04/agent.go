@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"sort"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -77,6 +78,54 @@ func (a *Agent) buildTools() []openai.ChatCompletionToolUnionParam {
 func (a *Agent) ResetSession() {
 	a.messages = make([]openai.ChatCompletionMessageParamUnion, 0)
 	a.messages = append(a.messages, openai.SystemMessage(a.systemPrompt))
+}
+
+type ToolDebugInfo struct {
+	Name        string
+	DisplayName string
+	Source      string
+	Description string
+}
+
+func (a *Agent) DebugTools() []ToolDebugInfo {
+	tools := make([]ToolDebugInfo, 0)
+
+	for _, t := range a.nativeTools {
+		desc := ""
+		if fn := t.Info().GetFunction(); fn != nil && fn.Description.Valid() {
+			desc = fn.Description.Value
+		}
+		tools = append(tools, ToolDebugInfo{
+			Name:        t.ToolName(),
+			DisplayName: t.ToolName(),
+			Source:      "native",
+			Description: desc,
+		})
+	}
+
+	for serverName, mcpClient := range a.mcpClients {
+		for _, t := range mcpClient.GetTools() {
+			desc := ""
+			if fn := t.Info().GetFunction(); fn != nil && fn.Description.Valid() {
+				desc = fn.Description.Value
+			}
+			tools = append(tools, ToolDebugInfo{
+				Name:        t.ToolName(),
+				DisplayName: t.ToolName(),
+				Source:      "mcp:" + serverName,
+				Description: desc,
+			})
+		}
+	}
+
+	sort.Slice(tools, func(i, j int) bool {
+		if tools[i].Source != tools[j].Source {
+			return tools[i].Source < tools[j].Source
+		}
+		return tools[i].Name < tools[j].Name
+	})
+
+	return tools
 }
 
 // RunStreaming 和 Run 基本逻辑一致，但是使用流式请求，并且通过 channel 实现流式输出

@@ -1,6 +1,9 @@
 package context
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 type TruncatePolicy struct {
 	// KeepRecentMessages 表示最少保留的最近消息数量。
@@ -25,6 +28,7 @@ func (p *TruncatePolicy) Apply(ctx context.Context, engine *Engine) (PolicyResul
 		return PolicyResult{
 			Messages:      engine.messages,
 			ContextTokens: engine.contextTokens,
+			Summary:       "message count within keepRecent threshold; nothing truncated",
 		}, nil
 	}
 
@@ -46,6 +50,7 @@ func (p *TruncatePolicy) Apply(ctx context.Context, engine *Engine) (PolicyResul
 		return PolicyResult{
 			Messages:      engine.messages,
 			ContextTokens: engine.contextTokens,
+			Summary:       "no safe user boundary found; kept all messages",
 		}, nil
 	}
 
@@ -57,6 +62,7 @@ func (p *TruncatePolicy) Apply(ctx context.Context, engine *Engine) (PolicyResul
 	return PolicyResult{
 		Messages:      engine.messages[removeIdx:],
 		ContextTokens: engine.contextTokens - removedTokens,
+		Summary:       fmt.Sprintf("removed %d old messages before the last safe user boundary", removeIdx),
 	}, nil
 }
 

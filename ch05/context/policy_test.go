@@ -82,6 +82,8 @@ func contentString(t *testing.T, msg shared.OpenAIMessage) string {
 	return *s
 }
 
+// Guardrail: truncate must respect the keepRecent protection zone and avoid
+// deleting history when the conversation is already within the protected tail.
 func TestTruncatePolicyApply_NoChangeWhenWithinKeepRecent(t *testing.T) {
 	engine := buildEngine([]shared.OpenAIMessage{
 		openai.UserMessage("u1"),
@@ -101,6 +103,8 @@ func TestTruncatePolicyApply_NoChangeWhenWithinKeepRecent(t *testing.T) {
 	}
 }
 
+// Guardrail: truncate should cut at a user boundary when possible so the
+// surviving transcript still starts from a coherent user intent.
 func TestTruncatePolicyApply_TruncateBeforeLatestUserBoundary(t *testing.T) {
 	engine := buildEngine([]shared.OpenAIMessage{
 		openai.AssistantMessage("a0"),
@@ -126,6 +130,8 @@ func TestTruncatePolicyApply_TruncateBeforeLatestUserBoundary(t *testing.T) {
 	}
 }
 
+// Guardrail: the truncate threshold should trigger once estimated usage crosses
+// the configured budget.
 func TestTruncatePolicyShouldApply(t *testing.T) {
 	engine := &Engine{contextTokens: 81, contextWindow: 100}
 	p := NewTruncatePolicy(2, 0.8)
@@ -134,6 +140,8 @@ func TestTruncatePolicyShouldApply(t *testing.T) {
 	}
 }
 
+// Guardrail: summary must support batched compression with a running summary
+// and materialize the compressed history as a single user-role message.
 func TestSummaryPolicyApply_GeneratesBatchedSummary(t *testing.T) {
 	s := &fakeSummarizer{
 		limit: 1000,
@@ -174,6 +182,8 @@ func TestSummaryPolicyApply_GeneratesBatchedSummary(t *testing.T) {
 	}
 }
 
+// Guardrail: when summarization yields an unusable result, the policy must
+// preserve the original messages instead of corrupting history.
 func TestSummaryPolicyApply_EmptySummaryFallsBackToOriginal(t *testing.T) {
 	s := &fakeSummarizer{
 		limit: 1000,
@@ -199,6 +209,8 @@ func TestSummaryPolicyApply_EmptySummaryFallsBackToOriginal(t *testing.T) {
 	}
 }
 
+// Guardrail: the summary threshold should trigger once usage crosses the
+// configured budget.
 func TestSummaryPolicyShouldApply(t *testing.T) {
 	engine := &Engine{contextTokens: 90, contextWindow: 100}
 	s := &fakeSummarizer{limit: 1000, fn: func(r string, _ []shared.OpenAIMessage) (string, error) { return r, nil }}
@@ -208,6 +220,8 @@ func TestSummaryPolicyShouldApply(t *testing.T) {
 	}
 }
 
+// Guardrail: offload should only rewrite long tool outputs, keep short tool
+// results untouched, and leave token accounting internally consistent.
 func TestOffloadPolicyApply_OffloadsLongToolMessagesOnly(t *testing.T) {
 	st := &fakeStorage{store: map[string]string{}}
 	p := NewOffloadPolicy(st, 0.8, 1, 10)
@@ -245,6 +259,8 @@ func TestOffloadPolicyApply_OffloadsLongToolMessagesOnly(t *testing.T) {
 	}
 }
 
+// Guardrail: a storage failure must not destroy original tool output; the
+// policy should fail safe by keeping the message unchanged.
 func TestOffloadPolicyApply_StoreFailureKeepsOriginalContent(t *testing.T) {
 	st := &fakeStorage{store: map[string]string{}, fail: true}
 	p := NewOffloadPolicy(st, 0.8, 0, 5)
@@ -264,6 +280,8 @@ func TestOffloadPolicyApply_StoreFailureKeepsOriginalContent(t *testing.T) {
 	}
 }
 
+// Guardrail: the offload threshold should trigger once usage crosses the
+// configured budget.
 func TestOffloadPolicyShouldApply(t *testing.T) {
 	engine := &Engine{contextTokens: 85, contextWindow: 100}
 	p := NewOffloadPolicy(&fakeStorage{store: map[string]string{}}, 0.8, 1, 10)

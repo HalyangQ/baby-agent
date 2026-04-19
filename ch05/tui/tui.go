@@ -201,6 +201,10 @@ func (m *TuiViewModel) handleSubmit() (tea.Model, tea.Cmd) {
 		m.clearSession()
 		return m, nil
 	}
+	if query == "/context" {
+		m.showContext()
+		return m, nil
+	}
 
 	return m.startNewTurn(query)
 }
@@ -254,7 +258,14 @@ func (m *TuiViewModel) handleStreamEvent(event ch05.MessageVO) {
 		} else {
 			// 策略结束：更新对应的 log entry
 			if m.active.policyBody >= 0 && m.active.policyBody < len(m.logs) {
-				m.logs[m.active.policyBody].UpdatePolicyCompleted(event.Policy.Error == nil)
+				m.logs[m.active.policyBody].UpdatePolicyCompleted(
+					event.Policy.Error == nil,
+					event.Policy.Summary,
+					event.Policy.BeforeMessages,
+					event.Policy.AfterMessages,
+					event.Policy.BeforeTokens,
+					event.Policy.AfterTokens,
+				)
 			}
 			m.active.policyBody = -1
 		}
@@ -336,6 +347,14 @@ func (m *TuiViewModel) clearSession() {
 	m.agent.ResetSession()
 	m.logs = m.logs[:0]
 	m.notice = "会话已清空（仅保留 system prompt）。"
+	m.refreshLogsViewportContent()
+}
+
+func (m *TuiViewModel) showContext() {
+	m.logs = append(m.logs, NewLabel("上下文快照"))
+	m.logs = append(m.logs, NewContext(m.agent.DebugContext()))
+	m.logs = append(m.logs, NewBorder())
+	m.notice = "已输出当前上下文统计。"
 	m.refreshLogsViewportContent()
 }
 
@@ -456,7 +475,7 @@ func (m *TuiViewModel) View() tea.View {
 	b.WriteString("\n")
 	b.WriteString(footerStyle.Render("快捷键: Ctrl+C 退出，Esc 取消当前流式"))
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render("命令: /clear 清空会话"))
+	b.WriteString(footerStyle.Render("命令: /clear 清空会话, /context 查看上下文"))
 	if m.notice != "" {
 		b.WriteString("\n")
 		b.WriteString(noticeStyle.Render(m.notice))

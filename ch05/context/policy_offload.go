@@ -46,6 +46,7 @@ func (p *OffloadPolicy) Apply(ctx context.Context, engine *Engine) (PolicyResult
 		return PolicyResult{
 			Messages:      engine.messages,
 			ContextTokens: engine.contextTokens,
+			Summary:       "message count within keepRecent threshold; nothing offloaded",
 		}, nil
 	}
 
@@ -53,6 +54,7 @@ func (p *OffloadPolicy) Apply(ctx context.Context, engine *Engine) (PolicyResult
 	messages := make([]messageWrap, len(engine.messages))
 	copy(messages, engine.messages)
 	contextTokens := engine.contextTokens
+	offloaded := 0
 
 	offloadCount := len(messages) - p.KeepRecentMessages
 
@@ -96,11 +98,18 @@ func (p *OffloadPolicy) Apply(ctx context.Context, engine *Engine) (PolicyResult
 		newTokens := CountTokens(newMessage)
 		messages[i] = messageWrap{Message: newMessage, Tokens: newTokens}
 		contextTokens -= oldTokens - newTokens
+		offloaded++
+	}
+
+	summary := "no eligible long tool messages found"
+	if offloaded > 0 {
+		summary = fmt.Sprintf("offloaded %d long tool messages to storage", offloaded)
 	}
 
 	return PolicyResult{
 		Messages:      messages,
 		ContextTokens: contextTokens,
+		Summary:       summary,
 	}, nil
 }
 
