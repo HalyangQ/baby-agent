@@ -68,19 +68,37 @@ func (e *LogEntry) UpdatePolicyCompleted(success bool) {
 }
 
 // NewMemoryRunning 创建记忆更新运行中状态
-func NewMemoryRunning() LogEntry {
-	return LogEntry{Title: "记忆更新", Content: "(运行中...)", Style: policyStyle}
+func NewMemoryRunning(detail string) LogEntry {
+	content := "(运行中...)"
+	if detail != "" {
+		content = detail + " (运行中...)"
+	}
+	return LogEntry{Title: "记忆更新", Content: content, Style: policyStyle}
 }
 
 // UpdateMemoryCompleted 更新记忆 log entry 为完成状态
-func (e *LogEntry) UpdateMemoryCompleted(success bool) {
+func (e *LogEntry) UpdateMemoryCompleted(success bool, detail string) {
 	status := "已完成"
 	if !success {
 		status = "已失败"
 	}
 	// 移除 "(运行中...)" 后缀并替换为完成状态
 	e.Content = strings.Replace(e.Content, "(运行中...)", "", 1)
+	e.Content = strings.TrimSpace(e.Content)
+	if detail != "" {
+		e.Content = detail
+	}
 	e.Content = fmt.Sprintf("%s (%s)", e.Content, status)
+}
+
+// NewMemorySnapshot 创建记忆快照
+func NewMemorySnapshot(content string) LogEntry {
+	return LogEntry{Title: "记忆快照", Content: content, Style: policyStyle}
+}
+
+// NewMemoryStatus 创建记忆状态
+func NewMemoryStatus(content string) LogEntry {
+	return LogEntry{Title: "记忆状态", Content: content, Style: policyStyle}
 }
 
 // NewBorder 创建分隔线

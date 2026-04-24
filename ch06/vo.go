@@ -29,8 +29,9 @@ type PolicyVO struct {
 
 // MemoryVO 记忆更新状态
 type MemoryVO struct {
-	Running bool  `json:"running"` // 是否正在执行
-	Error   error `json:"error"`
+	Running bool   `json:"running"` // 是否正在执行
+	Error   error  `json:"error"`
+	Detail  string `json:"detail,omitempty"`
 }
 
 type ToolCallVO struct {

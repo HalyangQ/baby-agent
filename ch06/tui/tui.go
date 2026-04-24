@@ -73,11 +73,21 @@ func NewModel(agent *ch06.Agent, modelName string) *TuiViewModel {
 	vp.SoftWrap = true
 	vp.MouseWheelEnabled = false
 
+	status := agent.MemoryStatus()
+	notice := fmt.Sprintf(
+		"memory 已加载：global=%d chars (%s), workspace=%d chars (%s)。可用 /memory 查看内容。",
+		status.GlobalChars,
+		memoryExistText(status.GlobalExists),
+		status.WorkspaceChars,
+		memoryExistText(status.WorkspaceExists),
+	)
+
 	return &TuiViewModel{
 		modelName:    modelName,
 		agent:        agent,
 		logs:         make([]LogEntry, 0),
 		logsViewport: vp,
+		notice:       notice,
 	}
 }
 
@@ -202,6 +212,14 @@ func (m *TuiViewModel) handleSubmit() (tea.Model, tea.Cmd) {
 		m.clearSession()
 		return m, nil
 	}
+	if query == "/memory" {
+		m.showMemorySnapshot()
+		return m, nil
+	}
+	if query == "/memory-status" {
+		m.showMemoryStatus()
+		return m, nil
+	}
 
 	return m.startNewTurn(query)
 }
@@ -266,12 +284,12 @@ func (m *TuiViewModel) handleStreamEvent(event ch06.MessageVO) {
 		}
 		if event.Memory.Running {
 			// 记忆更新开始：添加新的 log entry
-			m.logs = append(m.logs, NewMemoryRunning())
+			m.logs = append(m.logs, NewMemoryRunning(event.Memory.Detail))
 			m.active.memoryBody = len(m.logs) - 1
 		} else {
 			// 记忆更新结束：更新对应的 log entry
 			if m.active.memoryBody >= 0 && m.active.memoryBody < len(m.logs) {
-				m.logs[m.active.memoryBody].UpdateMemoryCompleted(event.Memory.Error == nil)
+				m.logs[m.active.memoryBody].UpdateMemoryCompleted(event.Memory.Error == nil, event.Memory.Detail)
 			}
 			m.active.memoryBody = -1
 		}
@@ -354,6 +372,30 @@ func (m *TuiViewModel) clearSession() {
 	m.agent.ResetSession()
 	m.logs = m.logs[:0]
 	m.notice = "会话已清空（仅保留 system prompt）。"
+	m.refreshLogsViewportContent()
+}
+
+func (m *TuiViewModel) showMemorySnapshot() {
+	m.logs = append(m.logs, NewMemorySnapshot(m.agent.MemorySnapshot()))
+	m.logs = append(m.logs, NewBorder())
+	m.notice = "已输出当前 Global / Workspace Memory 快照。"
+	m.refreshLogsViewportContent()
+}
+
+func (m *TuiViewModel) showMemoryStatus() {
+	status := m.agent.MemoryStatus()
+	content := fmt.Sprintf(
+		"global: %s, exists=%t, chars=%d\nworkspace: %s, exists=%t, chars=%d",
+		status.GlobalPath,
+		status.GlobalExists,
+		status.GlobalChars,
+		status.WorkspacePath,
+		status.WorkspaceExists,
+		status.WorkspaceChars,
+	)
+	m.logs = append(m.logs, NewMemoryStatus(content))
+	m.logs = append(m.logs, NewBorder())
+	m.notice = "已输出当前 memory 文件状态。"
 	m.refreshLogsViewportContent()
 }
 
@@ -474,7 +516,7 @@ func (m *TuiViewModel) View() tea.View {
 	b.WriteString("\n")
 	b.WriteString(footerStyle.Render("快捷键: Ctrl+C 退出，Esc 取消当前流式"))
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render("命令: /clear 清空会话"))
+	b.WriteString(footerStyle.Render("命令: /clear 清空会话, /memory 查看记忆, /memory-status 查看状态"))
 	if m.notice != "" {
 		b.WriteString("\n")
 		b.WriteString(noticeStyle.Render(m.notice))
@@ -484,4 +526,11 @@ func (m *TuiViewModel) View() tea.View {
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
 	return v
+}
+
+func memoryExistText(exists bool) string {
+	if exists {
+		return "exists"
+	}
+	return "missing"
 }

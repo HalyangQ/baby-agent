@@ -22,7 +22,7 @@ type Engine struct {
 	messages             []messageWrap
 	policies             []Policy
 	onPolicyEvent        func(policyName string, running bool, err error)
-	onMemoryEvent        func(running bool, err error)
+	onMemoryEvent        func(event MemoryEvent)
 	contextTokens        int
 	contextWindow        int
 
@@ -35,6 +35,13 @@ type TokenBudget struct {
 
 type Usage struct {
 	PromptTokens int
+}
+
+type MemoryEvent struct {
+	Running bool
+	Error   error
+	Detail  string
+	Report  memory.UpdateReport
 }
 
 type TurnDraft struct {
@@ -86,11 +93,19 @@ func (c *Engine) CommitTurn(ctx context.Context, draft TurnDraft, usage Usage) e
 	}
 	// 更新记忆
 	if c.onMemoryEvent != nil {
-		c.onMemoryEvent(true, nil)
+		c.onMemoryEvent(MemoryEvent{
+			Running: true,
+			Detail:  fmt.Sprintf("准备处理 %d 条新消息并更新 Global / Workspace Memory", len(draft.NewMessages)),
+		})
 	}
-	err := c.memory.Update(ctx, draft.NewMessages)
+	report, err := c.memory.Update(ctx, draft.NewMessages)
 	if c.onMemoryEvent != nil {
-		c.onMemoryEvent(false, err)
+		c.onMemoryEvent(MemoryEvent{
+			Running: false,
+			Error:   err,
+			Detail:  formatMemoryEventDetail(report, err),
+			Report:  report,
+		})
 	}
 	if err != nil {
 		return err
@@ -142,7 +157,7 @@ func (c *Engine) SetPolicyEventHook(hook func(policyName string, running bool, e
 	c.onPolicyEvent = hook
 }
 
-func (c *Engine) SetMemoryEventHook(hook func(running bool, err error)) {
+func (c *Engine) SetMemoryEventHook(hook func(event MemoryEvent)) {
 	c.onMemoryEvent = hook
 }
 
@@ -168,4 +183,42 @@ func (c *Engine) BuildSystemPrompt() string {
 func (c *Engine) Reset() {
 	c.messages = make([]messageWrap, 0)
 	c.contextTokens = 0
+}
+
+func (c *Engine) MemorySnapshot() memory.MemoryContent {
+	if c.memory == nil {
+		return memory.MemoryContent{}
+	}
+	return c.memory.Snapshot()
+}
+
+func formatMemoryEventDetail(report memory.UpdateReport, err error) string {
+	if err != nil {
+		return fmt.Sprintf(
+			"处理 %d 条新消息失败：%v",
+			report.ProcessedMessages,
+			err,
+		)
+	}
+
+	changedScopes := make([]string, 0, 2)
+	if report.GlobalChanged {
+		changedScopes = append(changedScopes, "Global")
+	}
+	if report.WorkspaceChanged {
+		changedScopes = append(changedScopes, "Workspace")
+	}
+	if len(changedScopes) == 0 {
+		changedScopes = append(changedScopes, "无实际变更")
+	}
+
+	return fmt.Sprintf(
+		"处理 %d 条新消息；变更=%s；global %d->%d chars；workspace %d->%d chars",
+		report.ProcessedMessages,
+		strings.Join(changedScopes, ", "),
+		report.GlobalCharsBefore,
+		report.GlobalCharsAfter,
+		report.WorkspaceCharsBefore,
+		report.WorkspaceCharsAfter,
+	)
 }

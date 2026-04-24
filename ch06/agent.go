@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"os"
+	"path/filepath"
 
 	"github.com/openai/openai-go/v3"
 
@@ -80,6 +82,38 @@ func (a *Agent) ResetSession() {
 	a.contextEngine.Reset()
 }
 
+func (a *Agent) MemorySnapshot() string {
+	snapshot := a.contextEngine.MemorySnapshot()
+	return snapshot.String()
+}
+
+type MemoryStatus struct {
+	GlobalPath      string
+	GlobalExists    bool
+	GlobalChars     int
+	WorkspacePath   string
+	WorkspaceExists bool
+	WorkspaceChars  int
+}
+
+func (a *Agent) MemoryStatus() MemoryStatus {
+	snapshot := a.contextEngine.MemorySnapshot()
+	globalPath := filepath.Join(shared.GetHomeDir(), ".babyagent", "memory", "MEMORY.md")
+	workspacePath := filepath.Join(shared.GetWorkspaceDir(), ".babyagent", "memory", "MEMORY.md")
+
+	_, globalErr := os.Stat(globalPath)
+	_, workspaceErr := os.Stat(workspacePath)
+
+	return MemoryStatus{
+		GlobalPath:      globalPath,
+		GlobalExists:    globalErr == nil,
+		GlobalChars:     len(snapshot.GlobalMemory),
+		WorkspacePath:   workspacePath,
+		WorkspaceExists: workspaceErr == nil,
+		WorkspaceChars:  len(snapshot.WorkspaceMemory),
+	}
+}
+
 // RunStreaming 和 Run 基本逻辑一致，但是使用流式请求，并且通过 channel 实现流式输出
 func (a *Agent) RunStreaming(ctx context.Context, query string, viewCh chan MessageVO) error {
 	a.contextEngine.SetPolicyEventHook(func(policyName string, running bool, err error) {
@@ -92,12 +126,13 @@ func (a *Agent) RunStreaming(ctx context.Context, query string, viewCh chan Mess
 			},
 		}
 	})
-	a.contextEngine.SetMemoryEventHook(func(running bool, err error) {
+	a.contextEngine.SetMemoryEventHook(func(event ctxengine.MemoryEvent) {
 		viewCh <- MessageVO{
 			Type: MessageTypeMemory,
 			Memory: &MemoryVO{
-				Running: running,
-				Error:   err,
+				Running: event.Running,
+				Error:   event.Error,
+				Detail:  event.Detail,
 			},
 		}
 	})

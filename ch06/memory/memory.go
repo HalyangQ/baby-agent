@@ -10,7 +10,18 @@ import (
 
 type Memory interface {
 	String() string
-	Update(ctx context.Context, newMessages []shared.OpenAIMessage) error
+	Snapshot() MemoryContent
+	Update(ctx context.Context, newMessages []shared.OpenAIMessage) (UpdateReport, error)
+}
+
+type UpdateReport struct {
+	ProcessedMessages    int
+	GlobalChanged        bool
+	WorkspaceChanged     bool
+	GlobalCharsBefore    int
+	GlobalCharsAfter     int
+	WorkspaceCharsBefore int
+	WorkspaceCharsAfter  int
 }
 
 type MultiLevelMemory struct {
@@ -50,27 +61,40 @@ func (m *MultiLevelMemory) String() string {
 	return m.content.String()
 }
 
-func (m *MultiLevelMemory) Update(ctx context.Context, newMessages []shared.OpenAIMessage) error {
+func (m *MultiLevelMemory) Snapshot() MemoryContent {
+	return m.content
+}
+
+func (m *MultiLevelMemory) Update(ctx context.Context, newMessages []shared.OpenAIMessage) (UpdateReport, error) {
+	report := UpdateReport{ProcessedMessages: len(newMessages)}
 	if len(newMessages) == 0 {
-		return nil
+		return report, nil
 	}
 
+	oldMemory := m.content
 	newMemory, err := m.updater.Update(ctx, m.content, newMessages)
 	if err != nil {
-		return err
+		return report, err
 	}
 
+	report.GlobalCharsBefore = len(oldMemory.GlobalMemory)
+	report.GlobalCharsAfter = len(newMemory.GlobalMemory)
+	report.WorkspaceCharsBefore = len(oldMemory.WorkspaceMemory)
+	report.WorkspaceCharsAfter = len(newMemory.WorkspaceMemory)
+	report.GlobalChanged = oldMemory.GlobalMemory != newMemory.GlobalMemory
+	report.WorkspaceChanged = oldMemory.WorkspaceMemory != newMemory.WorkspaceMemory
+
 	if err := m.globalStorage.Store(ctx, m.globalKey, newMemory.GlobalMemory); err != nil {
-		return err
+		return report, err
 	}
 	if err := m.workspaceStorage.Store(ctx, m.workspaceKey, newMemory.WorkspaceMemory); err != nil {
-		return err
+		return report, err
 	}
 
 	// 更新内存中的 content
 	m.content = newMemory
 
-	return nil
+	return report, nil
 }
 
 type MemoryContent struct {
