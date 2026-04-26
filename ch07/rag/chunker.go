@@ -27,6 +27,7 @@ func NewChunker(chunkerType ChunkerType, maxLines, maxChars int) ChunkerService 
 }
 
 // LineChunker 按行和字符数切分的实现
+// 按行切分文档，同时限制最大行数和最大字符数。适合代码、配置文件这类行结构明显的文本。
 type LineChunker struct {
 	maxLines int
 	maxChars int
@@ -96,6 +97,7 @@ func (c *LineChunker) Chunk(documentID, content string) []Chunk {
 }
 
 // ParagraphChunker 按段落切分的实现
+// 它适合 Markdown、文章、自然语言文档。它用空行判断段落边界。
 type ParagraphChunker struct {
 	maxParagraphs int
 }

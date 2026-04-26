@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -61,6 +62,7 @@ func NewPGVectorStore(config Config) (*PGVectorStore, error) {
 	if config.Dimension == 0 {
 		config.Dimension = 1536
 	}
+	log.Printf("[ch07:pgvector] connect host=%s port=%d database=%s dimension=%d", config.Host, config.Port, config.Database, config.Dimension)
 
 	dsn := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
@@ -81,12 +83,14 @@ func NewPGVectorStore(config Config) (*PGVectorStore, error) {
 	if err := store.initTable(); err != nil {
 		return nil, fmt.Errorf("failed to initialize table: %w", err)
 	}
+	log.Printf("[ch07:pgvector] ready database=%s dimension=%d", config.Database, config.Dimension)
 
 	return store, nil
 }
 
 // initTable 创建必要的表和索引
 func (s *PGVectorStore) initTable() error {
+	log.Printf("[ch07:pgvector] initializing table and vector extension")
 	// 创建扩展
 	if err := s.db.Exec("CREATE EXTENSION IF NOT EXISTS vector").Error; err != nil {
 		return fmt.Errorf("failed to create vector extension: %w", err)
@@ -109,6 +113,7 @@ func (s *PGVectorStore) initTable() error {
 			return fmt.Errorf("failed to create index: %w", err)
 		}
 	}
+	log.Printf("[ch07:pgvector] initialized table=document_chunks index=idx_document_chunks_embedding")
 
 	return nil
 }
@@ -118,6 +123,8 @@ func (s *PGVectorStore) Insert(ctx context.Context, vp shared.VectorPoint) error
 	if len(vp.Vector) != s.dimension {
 		return fmt.Errorf("vector dimension mismatch: expected %d, got %d", s.dimension, len(vp.Vector))
 	}
+	log.Printf("[ch07:pgvector] insert document=%s range=%d-%d vector_dim=%d",
+		vp.Chunk.Meta.DocumentID, vp.Chunk.Meta.StartPos, vp.Chunk.Meta.EndPos, len(vp.Vector))
 
 	doc := &DocumentChunk{
 		Content:    vp.Chunk.Content,
@@ -132,6 +139,8 @@ func (s *PGVectorStore) Insert(ctx context.Context, vp shared.VectorPoint) error
 
 // InsertBatch 批量插入向量点
 func (s *PGVectorStore) InsertBatch(ctx context.Context, vps []shared.VectorPoint) error {
+	start := time.Now()
+	log.Printf("[ch07:pgvector] insert_batch count=%d dimension=%d", len(vps), s.dimension)
 	docs := make([]*DocumentChunk, len(vps))
 	for i, vp := range vps {
 		if len(vp.Vector) != s.dimension {
@@ -147,7 +156,11 @@ func (s *PGVectorStore) InsertBatch(ctx context.Context, vps []shared.VectorPoin
 		}
 	}
 
-	return s.db.WithContext(ctx).CreateInBatches(docs, 100).Error
+	if err := s.db.WithContext(ctx).CreateInBatches(docs, 100).Error; err != nil {
+		return err
+	}
+	log.Printf("[ch07:pgvector] insert_batch completed count=%d duration=%s", len(vps), time.Since(start))
+	return nil
 }
 
 // Search 执行向量相似度搜索
@@ -155,6 +168,8 @@ func (s *PGVectorStore) Search(ctx context.Context, queryVector shared.Vector, l
 	if len(queryVector) != s.dimension {
 		return nil, fmt.Errorf("query vector dimension mismatch: expected %d, got %d", s.dimension, len(queryVector))
 	}
+	start := time.Now()
+	log.Printf("[ch07:pgvector] search vector_dim=%d limit=%d", len(queryVector), limit)
 
 	vectorStr := vectorToPGVector(queryVector)
 
@@ -198,16 +213,19 @@ func (s *PGVectorStore) Search(ctx context.Context, queryVector shared.Vector, l
 		}
 	}
 
+	log.Printf("[ch07:pgvector] search completed results=%d duration=%s", len(vectorPointResults), time.Since(start))
 	return vectorPointResults, nil
 }
 
 // DeleteByDocument 删除指定文档的所有向量
 func (s *PGVectorStore) DeleteByDocument(ctx context.Context, documentID string) error {
+	log.Printf("[ch07:pgvector] delete_document document=%s", documentID)
 	return s.db.WithContext(ctx).Where("document_id = ?", documentID).Delete(&DocumentChunk{}).Error
 }
 
 // Clear 清空表
 func (s *PGVectorStore) Clear(ctx context.Context) error {
+	log.Printf("[ch07:pgvector] clear table=document_chunks")
 	return s.db.WithContext(ctx).Exec("TRUNCATE TABLE document_chunks").Error
 }
 
@@ -263,10 +281,12 @@ func (s *PGVectorStore) GetDocumentIndexedTime(ctx context.Context, documentID s
 	err := s.db.WithContext(ctx).Where("document_id = ?", documentID).Order("created_at ASC").First(&doc).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
+			log.Printf("[ch07:pgvector] document_not_indexed document=%s", documentID)
 			return time.Time{}, nil // 文档不存在，返回零值时间
 		}
 		return time.Time{}, err
 	}
+	log.Printf("[ch07:pgvector] document_indexed document=%s indexed_at=%s", documentID, doc.CreatedAt.Format(time.RFC3339))
 	return doc.CreatedAt, nil
 }
 

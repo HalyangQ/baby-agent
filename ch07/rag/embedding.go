@@ -3,6 +3,8 @@ package shared
 import (
 	"context"
 	"fmt"
+	"log"
+	"time"
 
 	"github.com/go-resty/resty/v2"
 )
@@ -69,7 +71,9 @@ type embeddingResponse struct {
 
 // Embed 将文本转换为向量
 func (s *HTTPEmbeddingService) Embed(ctx context.Context, text string) (Vector, error) {
-	var resp embeddingResponse
+	start := time.Now()
+	log.Printf("[ch07:embedding] request model=%s dimensions=%d chars=%d", s.config.Model, s.config.Dimensions, len(text))
+	var body embeddingResponse
 
 	req := embeddingRequest{
 		Model: s.config.Model,
@@ -84,16 +88,22 @@ func (s *HTTPEmbeddingService) Embed(ctx context.Context, text string) (Vector, 
 	r := s.client.R().
 		SetContext(ctx).
 		SetBody(req).
-		SetResult(&resp)
+		SetResult(&body)
 
-	_, err := r.Post("/embeddings")
+	resp, err := r.Post("/embeddings")
 	if err != nil {
 		return nil, fmt.Errorf("failed to call embedding API: %w", err)
 	}
+	if resp.IsError() {
+		return nil, fmt.Errorf("embedding API returned status %d: %s", resp.StatusCode(), resp.String())
+	}
 
-	if len(resp.Data) == 0 {
+	if len(body.Data) == 0 {
 		return nil, fmt.Errorf("empty embedding response")
 	}
 
-	return Vector(resp.Data[0].Embedding), nil
+	vector := Vector(body.Data[0].Embedding)
+	log.Printf("[ch07:embedding] response model=%s vector_dim=%d prompt_tokens=%d total_tokens=%d duration=%s",
+		body.Model, len(vector), body.Usage.PromptTokens, body.Usage.TotalTokens, time.Since(start))
+	return vector, nil
 }

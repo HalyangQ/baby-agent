@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"time"
 
 	"github.com/openai/openai-go/v3"
 
@@ -54,7 +56,7 @@ func (s *SemanticSearchTool) Info() openai.ChatCompletionToolUnionParam {
 					"description": "搜索查询文本，例如：\"如何在Go中处理错误\"",
 				},
 				"top_k": map[string]any{
-					"type":        "int",
+					"type":        "integer",
 					"description": "返回结果数量，默认为5",
 				},
 			},
@@ -65,6 +67,8 @@ func (s *SemanticSearchTool) Info() openai.ChatCompletionToolUnionParam {
 
 // Execute 执行语义搜索
 func (s *SemanticSearchTool) Execute(ctx context.Context, argumentsInJSON string) (string, error) {
+	start := time.Now()
+	log.Printf("[ch07:semantic_search] execute args=%s", argumentsInJSON)
 	// 解析参数
 	var params SemanticSearchParams
 	if err := json.Unmarshal([]byte(argumentsInJSON), &params); err != nil {
@@ -75,6 +79,7 @@ func (s *SemanticSearchTool) Execute(ctx context.Context, argumentsInJSON string
 	if params.TopK <= 0 {
 		params.TopK = 5
 	}
+	log.Printf("[ch07:semantic_search] parsed query=%q top_k=%d", params.Query, params.TopK)
 
 	// 1. 将 query 转换为向量
 	queryVector, err := s.embedService.Embed(ctx, params.Query)
@@ -87,8 +92,10 @@ func (s *SemanticSearchTool) Execute(ctx context.Context, argumentsInJSON string
 	if err != nil {
 		return "", fmt.Errorf("failed to search vectors: %w", err)
 	}
+	log.Printf("[ch07:semantic_search] vector_search candidates=%d requested_limit=%d", len(vectorResults), params.TopK*2)
 
 	if len(vectorResults) == 0 {
+		log.Printf("[ch07:semantic_search] no_results query=%q duration=%s", params.Query, time.Since(start))
 		return "未找到相关结果", nil
 	}
 
@@ -104,14 +111,22 @@ func (s *SemanticSearchTool) Execute(ctx context.Context, argumentsInJSON string
 		rerankedChunks, err = s.rerankService.Rerank(ctx, params.Query, candidates)
 		if err != nil {
 			// 如果重排序失败，使用原始结果
+			log.Printf("[ch07:semantic_search] rerank_failed fallback=true err=%v", err)
 			rerankedChunks = candidates
 		}
 	} else {
+		log.Printf("[ch07:semantic_search] rerank_disabled fallback=true")
 		rerankedChunks = candidates
+	}
+	if len(rerankedChunks) > params.TopK {
+		rerankedChunks = rerankedChunks[:params.TopK]
 	}
 
 	// 5. 格式化结果
-	return s.formatResults(params.Query, rerankedChunks, len(vectorResults)), nil
+	result := s.formatResults(params.Query, rerankedChunks, len(vectorResults))
+	log.Printf("[ch07:semantic_search] completed query=%q returned=%d candidates=%d duration=%s",
+		params.Query, len(rerankedChunks), len(vectorResults), time.Since(start))
+	return result, nil
 }
 
 // formatResults 格式化搜索结果为可读字符串

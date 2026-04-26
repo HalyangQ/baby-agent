@@ -54,6 +54,13 @@ Use Go 1.25+.
   - what knowledge should be mastered after finishing,
   - extension reading summary,
   - what to focus on in the extension reading.
+- When guiding chapter learning, also include a recommended code reading order and what to pay special attention to in each file, so the learning path starts from the right entrypoints instead of forcing the user to infer them from the file tree.
+- Chapter learning should start with an active learning pass before answering detailed questions:
+  - First read the chapter README and code to infer the chapter's capability theme, implementation path, and conceptual focus.
+  - Then identify what runtime observations would help the user learn the chapter, and check whether the code has enough logs/debug output to support those observations.
+  - If logs are missing, propose or implement observability improvements before deep Q&A when appropriate.
+  - Before giving answers, list a broad set of study questions for the user to try answering. These questions should cover implementation details, model/system concepts, tradeoffs, failure modes, and industrial gaps.
+  - Do not answer the question list immediately unless the user asks. Let the user attempt answers first, then explain, correct, and record selected Q&A entries.
 - Extension reading should keep original source links and include additional takeaways from reading the source material, not just a restatement of the local code.
 - Q&A entries should record the user's questions and the assistant's answers, but should not record code change logs.
 - Each Q&A entry should use this structure:

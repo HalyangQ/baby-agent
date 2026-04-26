@@ -3,6 +3,8 @@ package shared
 import (
 	"context"
 	"fmt"
+	"log"
+	"time"
 
 	"github.com/go-resty/resty/v2"
 )
@@ -69,8 +71,11 @@ type rerankResponse struct {
 // Rerank 对候选文档进行重排序
 func (s *HTTPRerankService) Rerank(ctx context.Context, query string, candidates []Chunk) ([]Chunk, error) {
 	if len(candidates) == 0 {
+		log.Printf("[ch07:rerank] skip empty candidates query=%q", query)
 		return candidates, nil
 	}
+	start := time.Now()
+	log.Printf("[ch07:rerank] request model=%s query=%q candidates=%d", s.config.Model, query, len(candidates))
 
 	// 构建请求
 	documents := make([]string, len(candidates))
@@ -85,22 +90,30 @@ func (s *HTTPRerankService) Rerank(ctx context.Context, query string, candidates
 		TopN:      len(candidates),
 	}
 
-	var resp rerankResponse
+	var body rerankResponse
 	r := s.client.R().
 		SetContext(ctx).
 		SetBody(req).
-		SetResult(&resp)
+		SetResult(&body)
 
-	_, err := r.Post("/rerank")
+	resp, err := r.Post("/rerank")
 	if err != nil {
 		return nil, fmt.Errorf("failed to call rerank API: %w", err)
 	}
+	if resp.IsError() {
+		return nil, fmt.Errorf("rerank API returned status %d: %s", resp.StatusCode(), resp.String())
+	}
 
 	// 根据重排序结果重新组织候选文档
-	result := make([]Chunk, len(resp.Results))
-	for i, item := range resp.Results {
+	result := make([]Chunk, len(body.Results))
+	for i, item := range body.Results {
+		if item.Index < 0 || item.Index >= len(candidates) {
+			return nil, fmt.Errorf("rerank response index out of range: %d candidates=%d", item.Index, len(candidates))
+		}
 		result[i] = candidates[item.Index]
 	}
 
+	log.Printf("[ch07:rerank] response results=%d prompt_tokens=%d total_tokens=%d duration=%s",
+		len(result), body.Usage.PromptTokens, body.Usage.TotalTokens, time.Since(start))
 	return result, nil
 }

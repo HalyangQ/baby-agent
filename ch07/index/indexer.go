@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -42,12 +43,14 @@ func NewIndexer(config IndexerConfig, vectorStore shared.VectorStore, embedServi
 // Index 执行索引操作
 func (idx *Indexer) Index(ctx context.Context) (*IndexResult, error) {
 	startTime := time.Now()
+	log.Printf("[ch07:index] start serial indexing root=%s", idx.rootPath)
 
 	// 1. 遍历文件
 	files, err := idx.fileWalker.Walk(idx.rootPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to walk files: %w", err)
 	}
+	log.Printf("[ch07:index] discovered files=%d root=%s", len(files), idx.rootPath)
 
 	result := &IndexResult{
 		TotalFiles: len(files),
@@ -77,6 +80,8 @@ func (idx *Indexer) Index(ctx context.Context) (*IndexResult, error) {
 	}
 
 	result.Duration = time.Since(startTime)
+	log.Printf("[ch07:index] completed serial indexing total_files=%d success=%d skipped=%d reindexed=%d failed=%d chunks=%d duration=%s",
+		result.TotalFiles, result.SuccessFiles, result.SkippedFiles, result.ReindexedFiles, result.FailedFiles, result.TotalChunks, result.Duration)
 	return result, nil
 }
 
@@ -107,20 +112,23 @@ func (idx *Indexer) IndexConcurrent(ctx context.Context, concurrency int) (*Inde
 	if concurrency <= 0 {
 		concurrency = 10
 	}
+	log.Printf("[ch07:index] start concurrent indexing root=%s files=%d concurrency=%d", idx.rootPath, len(files), concurrency)
 
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
-		go func() {
+		go func(workerID int) {
 			defer wg.Done()
 			for filePath := range fileChan {
 				fileResult, err := idx.indexFile(ctx, filePath)
 				if err != nil {
+					log.Printf("[ch07:index] worker=%d file_failed path=%s err=%v", workerID, filePath, err)
 					resultMu.Lock()
 					result.FailedFiles++
 					result.Errors = append(result.Errors, fmt.Errorf("%s: %w", filePath, err))
 					resultMu.Unlock()
 					continue
 				}
+				log.Printf("[ch07:index] worker=%d file_done path=%s action=%s chunks=%d", workerID, filePath, fileResult.Action, fileResult.Chunks)
 
 				resultMu.Lock()
 				result.TotalChunks += fileResult.Chunks
@@ -137,11 +145,13 @@ func (idx *Indexer) IndexConcurrent(ctx context.Context, concurrency int) (*Inde
 				}
 				resultMu.Unlock()
 			}
-		}()
+		}(i + 1)
 	}
 
 	wg.Wait()
 	result.Duration = time.Since(startTime)
+	log.Printf("[ch07:index] completed concurrent indexing total_files=%d success=%d skipped=%d reindexed=%d failed=%d chunks=%d duration=%s",
+		result.TotalFiles, result.SuccessFiles, result.SkippedFiles, result.ReindexedFiles, result.FailedFiles, result.TotalChunks, result.Duration)
 	return result, nil
 }
 
@@ -169,6 +179,8 @@ func (idx *Indexer) indexFile(ctx context.Context, filePath string) (*FileIndexR
 	if !indexedTime.IsZero() {
 		// 文件未修改，跳过
 		if fileInfo.ModTime().Before(indexedTime) || fileInfo.ModTime().Equal(indexedTime) {
+			log.Printf("[ch07:index] skip unchanged document=%s file_mtime=%s indexed_at=%s",
+				relPath, fileInfo.ModTime().Format(time.RFC3339), indexedTime.Format(time.RFC3339))
 			return &FileIndexResult{
 				FilePath: filePath,
 				Chunks:   0,
@@ -177,6 +189,8 @@ func (idx *Indexer) indexFile(ctx context.Context, filePath string) (*FileIndexR
 		}
 
 		// 文件已修改，删除旧记录
+		log.Printf("[ch07:index] reindex modified document=%s file_mtime=%s indexed_at=%s",
+			relPath, fileInfo.ModTime().Format(time.RFC3339), indexedTime.Format(time.RFC3339))
 		if err := idx.vectorStore.DeleteByDocument(ctx, relPath); err != nil {
 			return nil, fmt.Errorf("failed to delete old index: %w", err)
 		}
@@ -191,8 +205,10 @@ func (idx *Indexer) indexFile(ctx context.Context, filePath string) (*FileIndexR
 	// 切分文本
 	chunks := idx.chunker.Chunk(relPath, string(content))
 	if len(chunks) == 0 {
+		log.Printf("[ch07:index] skip empty document=%s", relPath)
 		return &FileIndexResult{Chunks: 0, Action: IndexActionSkip}, nil
 	}
+	log.Printf("[ch07:index] chunked document=%s bytes=%d chunks=%d", relPath, len(content), len(chunks))
 
 	// 获取向量嵌入
 	vectorPoints, err := idx.embedChunks(ctx, chunks)
@@ -204,6 +220,7 @@ func (idx *Indexer) indexFile(ctx context.Context, filePath string) (*FileIndexR
 	if err := idx.vectorStore.InsertBatch(ctx, vectorPoints); err != nil {
 		return nil, fmt.Errorf("failed to insert vectors: %w", err)
 	}
+	log.Printf("[ch07:index] inserted document=%s chunks=%d", relPath, len(chunks))
 
 	// 确定操作类型
 	action := IndexActionNew
@@ -221,6 +238,7 @@ func (idx *Indexer) indexFile(ctx context.Context, filePath string) (*FileIndexR
 // embedChunks 批量获取向量嵌入
 func (idx *Indexer) embedChunks(ctx context.Context, chunks []shared.Chunk) ([]shared.VectorPoint, error) {
 	vectorPoints := make([]shared.VectorPoint, len(chunks))
+	log.Printf("[ch07:index] embedding chunks=%d", len(chunks))
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -233,6 +251,7 @@ func (idx *Indexer) embedChunks(ctx context.Context, chunks []shared.Chunk) ([]s
 
 			vector, err := idx.embedService.Embed(ctx, c.Content)
 			if err != nil {
+				log.Printf("[ch07:index] embed_failed document=%s range=%d-%d err=%v", c.Meta.DocumentID, c.Meta.StartPos, c.Meta.EndPos, err)
 				mu.Lock()
 				if firstErr == nil {
 					firstErr = err
@@ -256,21 +275,30 @@ func (idx *Indexer) embedChunks(ctx context.Context, chunks []shared.Chunk) ([]s
 		return nil, firstErr
 	}
 
+	log.Printf("[ch07:index] embedding completed chunks=%d", len(chunks))
 	return vectorPoints, nil
 }
 
 // Search 在索引中搜索相似内容
 func (idx *Indexer) Search(ctx context.Context, query string, limit int) ([]shared.VectorPointResult, error) {
+	start := time.Now()
+	log.Printf("[ch07:index] search query=%q limit=%d", query, limit)
 	queryVector, err := idx.embedService.Embed(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to embed query: %w", err)
 	}
 
-	return idx.vectorStore.Search(ctx, queryVector, limit)
+	results, err := idx.vectorStore.Search(ctx, queryVector, limit)
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("[ch07:index] search completed results=%d duration=%s", len(results), time.Since(start))
+	return results, nil
 }
 
 // Clear 清空索引
 func (idx *Indexer) Clear(ctx context.Context) error {
+	log.Printf("[ch07:index] clear index root=%s", idx.rootPath)
 	return idx.vectorStore.Clear(ctx)
 }
 

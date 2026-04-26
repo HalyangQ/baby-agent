@@ -81,6 +81,32 @@ cat $(pwd)/.babyagent/memory/MEMORY.md
   原始链接：
   - https://docs.langchain.com/oss/python/deepagents/long-term-memory
 
+  原文里有几个点值得和 `ch06` 对照学习。
+
+  - **DeepAgents 把长期记忆做成 filesystem-backed memory。**
+    它的核心设计是让 agent 像读写文件一样读写 memory，由 backend 控制这些文件存在哪里、谁能访问。这个思路和 `ch06` 用 `~/.babyagent/memory/MEMORY.md`、`{workspace}/.babyagent/memory/MEMORY.md` 做持久化很接近。但 DeepAgents 更进一步，把 backend、namespace、权限和多租户隔离都放进了设计里。
+
+  - **它明确区分 short-term memory 和 long-term memory。**
+    文档把单次会话里的 conversation history、scratch files 归到 short-term memory，把跨会话保存的文件归到 long-term memory。这个边界正好对应我们在 `ch05` / `ch06` 里一直强调的区别：上下文工程管理当前会话状态，长期记忆管理跨会话状态。
+
+  - **它支持两种读取方式：启动时注入和按需读取。**
+    memory 可以在 agent 启动时加载进 system prompt，也可以在对话过程中按需读取。文档里用 skills 举例：启动时只读 skill 描述，真正需要时才读完整 skill 文件。这个点很重要，因为它说明“全量注入 system prompt”只是最简单方式，不是唯一方式。`ch06` 当前全量注入 Global / Workspace，是教学版闭环；工业系统更可能做按需召回。
+
+  - **它把 memory 的作用域做成 namespace。**
+    文档里有 agent-scoped memory 和 user-scoped memory。agent-scoped memory 让同一个 agent 在所有用户之间共享长期身份和经验；user-scoped memory 则按用户隔离，避免 A 用户偏好泄露给 B 用户。这个和 `ch06` 的 `Global / Workspace` 不是同一个维度：`ch06` 是按信息作用域分层，DeepAgents 同时强调按访问主体隔离。
+
+  - **它把 memory 拆成更细的类型维度。**
+    文档提到 memory 可以按持续时间、信息类型、作用域、更新策略、读取方式、写权限来分类。其中信息类型包括 episodic、procedural、semantic。这个比 `ch06` 的两段 Markdown 更完整：`ch06` 目前主要在做 semantic memory，也就是事实、偏好、项目知识；procedural memory 更接近 skills；episodic memory 则保留过去会话和任务过程。
+
+  - **它提出 background consolidation。**
+    文档说 memory 可以在对话中热路径写入，也可以在会话之间由后台 consolidation agent 读取近期对话、抽取关键事实、合并进 memory store。这个正好对应我们之前讨论的“每轮都更新是不是开销大”。`ch06` 当前每轮 `CommitTurn()` 后同步更新，是最清楚的教学闭环；DeepAgents 提供了更工业化的方向：把记忆整理移到后台，用 cron 按实际使用频率触发。
+
+  - **它强调 read-only vs writable memory。**
+    对用户偏好这类个人记忆，agent 可以有写权限；对组织政策、合规规则、developer-defined skills 这类共享状态，通常应该只读。这个点和我们讨论的 memory 污染、prompt injection 风险直接相关：不是所有能被 agent 读到的 memory 都应该允许 agent 修改。
+
+  - **它专门讨论 concurrent writes。**
+    多个线程并发写同一个 memory 文件时，会有 last-write-wins 冲突。文档建议用后台 consolidation 串行化写入，或者按主题拆成多个文件减少竞争。`ch06` 当前没有并发写治理，如果未来支持多会话同时运行，这会成为真实问题。
+
 ### 5. 扩展阅读需要重点学习什么
 
 - **重点一：长期记忆和当前上下文的边界。**
@@ -94,6 +120,12 @@ cat $(pwd)/.babyagent/memory/MEMORY.md
 
 - **重点四：记忆系统的可靠性问题。**
   包括记忆错误、记忆冲突、过时记忆、敏感信息持久化，这些都是后面继续升级 memory system 时必须面对的问题。
+
+- **重点五：作用域和权限比“记住内容”更重要。**
+  DeepAgents 文档里反复出现 namespace、user-scoped、agent-scoped、organization-level、read-only、writable 这些概念。你要把它们理解成 memory governance 的核心：长期记忆不是简单存文本，而是要回答谁能读、谁能写、写入后影响谁。
+
+- **重点六：后台整理不是优化细节，而是 memory system 的另一种架构。**
+  Background consolidation 说明记忆更新可以不阻塞主对话，也可以跨多轮对话综合判断。它牺牲的是即时生效，换来更低前台延迟、更好的合并质量和更可控的写入节奏。
 
 ### 6. 本章应掌握的核心知识点
 
