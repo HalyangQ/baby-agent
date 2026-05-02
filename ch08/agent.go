@@ -84,8 +84,37 @@ func (a *Agent) ResetSession() {
 	a.contextEngine.Reset()
 }
 
+func (a *Agent) emitRuntimeInfo(viewCh chan MessageVO) {
+	for _, t := range a.nativeTools {
+		describable, ok := t.(tool.DescribableTool)
+		if !ok {
+			continue
+		}
+		info := describable.RuntimeDescription()
+		viewCh <- MessageVO{
+			Type:        MessageTypeRuntimeInfo,
+			RuntimeInfo: &info,
+		}
+	}
+}
+
+func confirmationActionLabel(action ConfirmationAction) string {
+	switch action {
+	case ConfirmAllow:
+		return "allow"
+	case ConfirmReject:
+		return "reject"
+	case ConfirmAlwaysAllow:
+		return "always_allow"
+	default:
+		return "unknown"
+	}
+}
+
 // RunStreaming 和 Run 基本逻辑一致，但是使用流式请求，并且通过 channel 实现流式输出
 func (a *Agent) RunStreaming(ctx context.Context, query string, viewCh chan MessageVO, confirmCh chan ConfirmationAction) error {
+	a.emitRuntimeInfo(viewCh)
+
 	a.contextEngine.SetPolicyEventHook(func(policyName string, running bool, err error) {
 		viewCh <- MessageVO{
 			Type: MessageTypePolicy,
@@ -192,9 +221,20 @@ func (a *Agent) RunStreaming(ctx context.Context, query string, viewCh chan Mess
 			needConfirm := a.confirmConfig.RequireConfirmTools[toolName] && !a.alwaysAllowTools[toolName]
 
 			if needConfirm {
+				reason := "matched ToolConfirmConfig.RequireConfirmTools and current session has not marked this tool as always allow"
 				confirmReq := ToolConfirmationVO{
 					ToolName:  toolCall.Function.Name,
 					Arguments: toolCall.Function.Arguments,
+					Reason:    reason,
+				}
+				viewCh <- MessageVO{
+					Type: MessageTypeAudit,
+					Audit: &AuditVO{
+						Event:     "tool_confirmation_requested",
+						ToolName:  toolCall.Function.Name,
+						Arguments: toolCall.Function.Arguments,
+						Result:    reason,
+					},
 				}
 				viewCh <- MessageVO{
 					Type:                    MessageTypeToolConfirm,
@@ -205,6 +245,15 @@ func (a *Agent) RunStreaming(ctx context.Context, query string, viewCh chan Mess
 				case <-ctx.Done():
 					return nil
 				case action := <-confirmCh:
+					viewCh <- MessageVO{
+						Type: MessageTypeAudit,
+						Audit: &AuditVO{
+							Event:     "tool_confirmation_decision",
+							ToolName:  toolCall.Function.Name,
+							Arguments: toolCall.Function.Arguments,
+							Decision:  confirmationActionLabel(action),
+						},
+					}
 					switch action {
 					case ConfirmReject:
 						toolMsg := openai.ToolMessage("user rejected tool call", toolCall.ID)
@@ -218,13 +267,48 @@ func (a *Agent) RunStreaming(ctx context.Context, query string, viewCh chan Mess
 				}
 			}
 
+			if observable, ok := t.(tool.ObservableTool); ok {
+				observable.SetEventHook(func(event tool.ToolEvent) {
+					viewCh <- MessageVO{
+						Type: MessageTypeToolEvent,
+						ToolEvent: &ToolEventVO{
+							ToolName: event.ToolName,
+							Stage:    event.Stage,
+							Message:  event.Message,
+						},
+					}
+				})
+			}
+			viewCh <- MessageVO{
+				Type: MessageTypeAudit,
+				Audit: &AuditVO{
+					Event:     "tool_execute_start",
+					ToolName:  toolCall.Function.Name,
+					Arguments: toolCall.Function.Arguments,
+				},
+			}
 			toolResult, err := t.Execute(ctx, toolCall.Function.Arguments)
+			if observable, ok := t.(tool.ObservableTool); ok {
+				observable.SetEventHook(nil)
+			}
 			if err != nil {
 				toolResult = err.Error()
 				viewCh <- MessageVO{
 					Type:    MessageTypeError,
 					Content: &toolResult,
 				}
+			}
+			result := "success"
+			if err != nil {
+				result = err.Error()
+			}
+			viewCh <- MessageVO{
+				Type: MessageTypeAudit,
+				Audit: &AuditVO{
+					Event:    "tool_execute_done",
+					ToolName: toolCall.Function.Name,
+					Result:   result,
+				},
 			}
 
 			viewCh <- MessageVO{

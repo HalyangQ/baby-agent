@@ -35,7 +35,7 @@
   索引完成后，`SemanticSearchTool.Execute()` 会先对 query 做 embedding，再从向量库召回 `top_k * 2` 个候选，然后用 rerank 重排，最后格式化成模型可读的文本结果。
 
 - **运行前置注意：**
-  当前本地 `go test ./ch07/...` 被 Go 工具链拦住，报错是 `go.mod` 中 `go 1.25.0` 不被当前 Go 版本解析。需要使用 Go 1.25+ 或调整本地 Go 版本后再验证。
+  当前本地 `go test ./...` 被 Go 工具链拦住，报错是 `go.mod` 中 `go 1.25.0` 不被当前 Go 版本解析。需要使用 Go 1.25+ 或调整本地 Go 版本后再验证。
 
 - **实现一致性注意：**
   当前 `ch07/rag` 目录里的 Go 文件声明为 `package shared`，但其他文件按 `babyagent/ch07/rag` 导入，并在代码中使用 `shared.*` 标识。这说明代码很可能处在章节草稿状态，后续运行前需要检查包名或导入别名是否一致。
@@ -125,28 +125,28 @@
 
 ### 7. 建议代码阅读顺序
 
-- **先看 [README.md](/Users/bytedance/vibe-coding/baby-agent/ch07/README.md)：**
+- **先看 [README.md](./README.md)：**
   先把 Agentic RAG 的整体链路读清楚。重点关注传统 RAG 和 Agentic RAG 的差异、chunking 的必要性、embedding 与 rerank 的分工、以及最后“Coding Agent 为什么不用 Embedding，而用 Grep”的讨论。
 
-- **再看 [type.go](/Users/bytedance/vibe-coding/baby-agent/ch07/rag/type.go)：**
+- **再看 [type.go](./rag/type.go)：**
   这里定义了 RAG 系统的核心抽象：`Vector`、`Chunk`、`Meta`、`VectorPoint`、`VectorStore`、`EmbeddingService`、`RerankService`、`ChunkerService`。先读接口能避免一上来陷入实现细节。
 
-- **然后看 [chunker.go](/Users/bytedance/vibe-coding/baby-agent/ch07/rag/chunker.go)：**
+- **然后看 [chunker.go](./rag/chunker.go)：**
   重点观察 `LineChunker` 和 `ParagraphChunker` 的边界处理。你要问自己：什么情况下会切断语义？为什么要保留 `StartPos` / `EndPos`？为什么 chunk 的元数据和内容同样重要？
 
-- **再看 [embedding.go](/Users/bytedance/vibe-coding/baby-agent/ch07/rag/embedding.go) 和 [rerank.go](/Users/bytedance/vibe-coding/baby-agent/ch07/rag/rerank.go)：**
+- **再看 [embedding.go](./rag/embedding.go) 和 [rerank.go](./rag/rerank.go)：**
   这两个文件分别对应召回和精排。重点看 HTTP 请求格式、模型配置、维度配置、返回结果解析，以及失败时系统会如何表现。
 
-- **接着看 [pgvector.go](/Users/bytedance/vibe-coding/baby-agent/ch07/db/pgvector.go)：**
+- **接着看 [pgvector.go](./db/pgvector.go)：**
   这里是向量存储落地。重点观察表结构、`Embedding` 字段、`InsertBatch`、`Search`、`DeleteByDocument`、`GetDocumentIndexedTime`，以及 SQL 里 `1 - (embedding <=> ?)` 和 `ORDER BY embedding <=> ?` 的含义。
 
-- **然后看 [file_walker.go](/Users/bytedance/vibe-coding/baby-agent/ch07/index/file_walker.go)：**
+- **然后看 [file_walker.go](./index/file_walker.go)：**
   这里决定哪些文件会进入索引。重点看排除目录和扩展名白名单。这个文件看似简单，但它决定了知识库的边界。
 
-- **再看 [indexer.go](/Users/bytedance/vibe-coding/baby-agent/ch07/index/indexer.go)：**
+- **再看 [indexer.go](./index/indexer.go)：**
   这是构建向量索引的主流程。重点观察 `Index()`、`IndexConcurrent()`、`indexFile()`、`embedChunks()`，特别是增量更新逻辑和并发 embedding 的错误处理。
 
-- **最后看 [semantic_search.go](/Users/bytedance/vibe-coding/baby-agent/ch07/tool/semantic_search.go)：**
+- **最后看 [semantic_search.go](./tool/semantic_search.go)：**
   这是 Agentic RAG 的工具入口。重点观察 tool schema 怎么描述 `query` 和 `top_k`，以及 `Execute()` 如何完成 query embedding、向量搜索、rerank 和结果格式化。
 
 - **学习时优先盯这 6 个观察点：**
@@ -416,7 +416,7 @@ overlap = 100 tokens
   是的，`ch07` 的向量数据库里不只存向量，也存原始 chunk 文本和来源元数据；向量负责相似度搜索，原文负责被模型读取和回答。
 
 - **详细回答：**
-  在 `ch07` 里，向量数据库存的不是裸向量，而是“向量 + 原始文本 + 来源元数据”。具体结构在 [pgvector.go](/Users/bytedance/vibe-coding/baby-agent/ch07/db/pgvector.go)：
+  在 `ch07` 里，向量数据库存的不是裸向量，而是“向量 + 原始文本 + 来源元数据”。具体结构在 [pgvector.go](./db/pgvector.go)：
 
 ```go
 type DocumentChunk struct {
@@ -467,7 +467,7 @@ CreatedAt   写入索引的时间
   `embedding <=> vector` 是 pgvector 的余弦距离运算，表示比较数据库里某条 embedding 向量和查询向量之间的距离；pgvector 不只支持余弦距离，也支持 L2、inner product、L1 等距离或相似度形式。
 
 - **详细回答：**
-  在 [pgvector.go](/Users/bytedance/vibe-coding/baby-agent/ch07/db/pgvector.go) 里有这段 SQL：
+  在 [pgvector.go](./db/pgvector.go) 里有这段 SQL：
 
 ```sql
 SELECT id, content, document_id, start_pos, end_pos,
@@ -630,7 +630,7 @@ USING ivfflat (embedding vector_ip_ops)
   `ch07` 不做 chunk 级别 diff，而是按文件判断是否需要重建索引：如果文件没变就跳过，如果文件修改过就删除该文件旧的所有向量块，然后重新切分、embedding、写入。
 
 - **详细回答：**
-  `ch07` 的增量更新与去重主要靠“文档路径 + 文件修改时间 + 删除旧 chunk 后重建”来做。核心逻辑在 [indexer.go](/Users/bytedance/vibe-coding/baby-agent/ch07/index/indexer.go)。
+  `ch07` 的增量更新与去重主要靠“文档路径 + 文件修改时间 + 删除旧 chunk 后重建”来做。核心逻辑在 [indexer.go](./index/indexer.go)。
 
 ```text
 indexFile(filePath)
@@ -666,7 +666,7 @@ if !indexedTime.IsZero() {
     `indexFile()` 会先把绝对路径转换成相对路径，并把这个相对路径作为 `DocumentID`。一个文件切出来的所有 chunk 都会带同一个 `DocumentID`。后续查询、删除、判断是否已经索引，都是围绕这个 `DocumentID` 做的。
 
   - **它用 `GetDocumentIndexedTime()` 判断文件之前是否索引过。**
-    在 [pgvector.go](/Users/bytedance/vibe-coding/baby-agent/ch07/db/pgvector.go) 里，`GetDocumentIndexedTime()` 会查询这个 `document_id` 对应的最早一条 chunk 的 `CreatedAt`。如果查不到，说明该文件还没索引过；如果查到了，就把这个时间当成该文件的索引时间。
+    在 [pgvector.go](./db/pgvector.go) 里，`GetDocumentIndexedTime()` 会查询这个 `document_id` 对应的最早一条 chunk 的 `CreatedAt`。如果查不到，说明该文件还没索引过；如果查到了，就把这个时间当成该文件的索引时间。
 
   - **如果文件没变，就直接跳过。**
     当文件的 `ModTime()` 早于或等于 `indexedTime`，说明当前文件内容在上次索引之后没有变过，因此不需要重新 embedding，也不需要重新写入向量库。这能避免重复索引未修改文件，节省 API 调用和数据库写入。
@@ -956,7 +956,7 @@ Rerank:
 
   为什么不直接对所有文档 rerank？因为 rerank 更贵。如果有 100 万个 chunk，不可能把 query 和每个 chunk 都送进 rerank 模型。成本和延迟都会爆炸。所以才需要两阶段：embedding 便宜、快、可在百万级数据上召回候选；rerank 贵、慢、但更准，只处理几十个候选。
 
-  `ch07` 当前的做法在 [semantic_search.go](/Users/bytedance/vibe-coding/baby-agent/ch07/tool/semantic_search.go) 里：
+  `ch07` 当前的做法在 [semantic_search.go](./tool/semantic_search.go) 里：
 
 ```text
 query
@@ -1942,7 +1942,7 @@ rerank top 100
 
   Hybrid Search 在代码库搜索、错误排查、API / 配置检索、用户描述模糊但代码是精确符号的场景中特别有用。比如 `CommitTurn 在哪里调用？`，全文搜索能精确命中 `CommitTurn`，语义搜索能补充 `turn lifecycle`、`commit draft` 相关内容。再比如 `ERR_CONNECTION_RESET`，全文搜索能精确找错误码，语义搜索能找相关解释。
 
-  和 `ch07` 的关系是，[tool.go](/Users/bytedance/vibe-coding/baby-agent/ch07/tool/tool.go) 里已经预留了：
+  和 `ch07` 的关系是，[tool.go](./tool/tool.go) 里已经预留了：
 
 ```go
 AgentToolSemanticSearch AgentTool = "semantic_search"

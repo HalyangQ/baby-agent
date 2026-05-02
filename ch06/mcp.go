@@ -103,9 +103,13 @@ func (e *McpClient) callTool(ctx context.Context, toolName string, argumentsInJS
 	if err := e.connect(ctx); err != nil {
 		return "", err
 	}
+	arguments, err := normalizeMcpToolArguments(argumentsInJSON)
+	if err != nil {
+		return "", err
+	}
 	mcpResult, err := e.session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      toolName,
-		Arguments: json.RawMessage(argumentsInJSON),
+		Arguments: arguments,
 	})
 	if err != nil {
 		log.Printf("failed to call tool: %v", err)
@@ -119,6 +123,17 @@ func (e *McpClient) callTool(ctx context.Context, toolName string, argumentsInJS
 		}
 	}
 	return builder.String(), nil
+}
+
+func normalizeMcpToolArguments(argumentsInJSON string) (json.RawMessage, error) {
+	argumentsInJSON = strings.TrimSpace(argumentsInJSON)
+	if argumentsInJSON == "" {
+		return json.RawMessage(`{}`), nil
+	}
+	if !json.Valid([]byte(argumentsInJSON)) {
+		return nil, fmt.Errorf("invalid MCP tool arguments JSON: %q", argumentsInJSON)
+	}
+	return json.RawMessage(argumentsInJSON), nil
 }
 
 // McpTool 实现 tool.Tool 接口

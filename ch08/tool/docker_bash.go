@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/shared"
@@ -32,8 +33,9 @@ type DockerBashTool struct {
 	image         string
 	workspaceDir  string
 
-	once     sync.Once
-	startErr error
+	once      sync.Once
+	startErr  error
+	eventHook EventHook
 }
 
 func NewDockerBashTool(containerName, workspaceDir string) *DockerBashTool {
@@ -49,6 +51,25 @@ func NewDockerBashTool(containerName, workspaceDir string) *DockerBashTool {
 
 func (t *DockerBashTool) ToolName() AgentTool {
 	return AgentToolBash
+}
+
+func (t *DockerBashTool) RuntimeDescription() string {
+	return fmt.Sprintf("bash tool: docker sandbox container=%s image=%s workspace=%s mount=/workspace:rw", t.containerName, t.image, t.workspaceDir)
+}
+
+func (t *DockerBashTool) SetEventHook(hook EventHook) {
+	t.eventHook = hook
+}
+
+func (t *DockerBashTool) emit(stage, message string) {
+	if t.eventHook == nil {
+		return
+	}
+	t.eventHook(ToolEvent{
+		ToolName: string(t.ToolName()),
+		Stage:    stage,
+		Message:  message,
+	})
 }
 
 func (t *DockerBashTool) Info() openai.ChatCompletionToolUnionParam {
@@ -71,7 +92,13 @@ func (t *DockerBashTool) Info() openai.ChatCompletionToolUnionParam {
 func (t *DockerBashTool) Execute(ctx context.Context, argumentsInJSON string) (string, error) {
 	// Lazy initialization: start container on first use
 	t.once.Do(func() {
+		t.emit("sandbox_init_start", fmt.Sprintf("ensuring docker sandbox container=%s image=%s", t.containerName, t.image))
 		t.startErr = t.ensureSandboxContainer(ctx)
+		if t.startErr != nil {
+			t.emit("sandbox_init_failed", t.startErr.Error())
+			return
+		}
+		t.emit("sandbox_init_done", fmt.Sprintf("docker sandbox ready container=%s", t.containerName))
 	})
 	if t.startErr != nil {
 		return "", fmt.Errorf("failed to start sandbox container: %w", t.startErr)
@@ -88,7 +115,10 @@ func (t *DockerBashTool) Execute(ctx context.Context, argumentsInJSON string) (s
 		t.containerName,
 		"sh", "-c", p.Command)
 
+	start := time.Now()
+	t.emit("execute_start", fmt.Sprintf("docker exec %s sh -c %q", t.containerName, p.Command))
 	output, err := cmd.CombinedOutput()
+	t.emit("execute_done", fmt.Sprintf("docker exec finished in %s, output_bytes=%d, err=%v", time.Since(start).Round(time.Millisecond), len(output), err))
 	if err != nil {
 		return string(output), fmt.Errorf("docker exec failed: %w", err)
 	}
@@ -97,13 +127,16 @@ func (t *DockerBashTool) Execute(ctx context.Context, argumentsInJSON string) (s
 
 func (t *DockerBashTool) ensureSandboxContainer(ctx context.Context) error {
 	// First, try to start existing container
+	t.emit("docker_start", fmt.Sprintf("docker start %s", t.containerName))
 	startCmd := exec.CommandContext(ctx, "docker", "start", t.containerName)
 	if startCmd.Run() == nil {
 		// Container exists and started successfully
+		t.emit("docker_start_done", fmt.Sprintf("reused existing container=%s", t.containerName))
 		return nil
 	}
 
 	// Container doesn't exist, create new one
+	t.emit("docker_create", fmt.Sprintf("docker run image=%s container=%s mount=%s:/workspace:rw", t.image, t.containerName, t.workspaceDir))
 	createCmd := exec.CommandContext(ctx, "docker", "run", "-d",
 		"--name", t.containerName,
 		"--restart", "unless-stopped",
@@ -116,5 +149,6 @@ func (t *DockerBashTool) ensureSandboxContainer(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create sandbox container: %s: %w", string(output), err)
 	}
+	t.emit("docker_create_done", fmt.Sprintf("created container=%s", t.containerName))
 	return nil
 }

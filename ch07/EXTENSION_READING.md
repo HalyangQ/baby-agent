@@ -27,7 +27,7 @@ ch07 的参考阅读可以分成三类：RAG 架构、向量数据库工程、�
   重点看 `vector` 字段怎么存 embedding，`<->`、`<#>`、`<=>`、`<+>` 分别表示什么距离，为什么 `1 - (embedding <=> query)` 可以把 cosine distance 转成 cosine similarity。还要看 HNSW 和 IVFFlat 的区别，以及 `ef_search`、`lists`、`probes` 这类参数如何影响速度和召回率。
 
 - **和 ch07 的对应关系：**
-  对应 [pgvector.go](/Users/bytedance/vibe-coding/baby-agent/ch07/db/pgvector.go)。本章用 pgvector 做 `VectorStore` 的落地实现，`embedding <=> ?` 这类 SQL 就来自 pgvector 的距离算子。你前面问过 `<=>` 是什么，这篇是最直接的官方来源。
+  对应 [pgvector.go](./db/pgvector.go)。本章用 pgvector 做 `VectorStore` 的落地实现，`embedding <=> ?` 这类 SQL 就来自 pgvector 的距离算子。你前面问过 `<=>` 是什么，这篇是最直接的官方来源。
 
 - **额外收获：**
   pgvector 让你看到“向量检索”不只是模型能力，而是数据库能力。embedding 是模型生成的，但检索效率、索引参数、过滤条件、数据更新和查询语义都属于存储系统和检索系统的问题。

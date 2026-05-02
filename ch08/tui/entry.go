@@ -13,6 +13,8 @@ var (
 	errorStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 	policyStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("228")).Bold(true)
 	confirmStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("226")).Bold(true)
+	runtimeStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
+	auditStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("111"))
 	confirmBoxStyle      = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
 	confirmSelectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("226")).Bold(true)
 	confirmOptionStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
@@ -48,6 +50,18 @@ func NewReasoning(content string) LogEntry {
 // NewTool 创建工具调用
 func NewTool(content string) LogEntry {
 	return LogEntry{Title: "工具调用", Content: content, Style: toolStyle}
+}
+
+func NewRuntimeInfo(content string) LogEntry {
+	return LogEntry{Title: "运行环境", Content: content, Style: runtimeStyle}
+}
+
+func NewToolEvent(content string) LogEntry {
+	return LogEntry{Title: "工具事件", Content: content, Style: toolStyle}
+}
+
+func NewAudit(content string) LogEntry {
+	return LogEntry{Title: "审计", Content: content, Style: auditStyle}
 }
 
 // NewError 创建错误信息
@@ -98,8 +112,11 @@ func NewNotice(content string) LogEntry {
 }
 
 // NewToolConfirmation 创建工具确认请求
-func NewToolConfirmation(toolName, arguments string) LogEntry {
+func NewToolConfirmation(toolName, arguments, reason string) LogEntry {
 	content := fmt.Sprintf("%s(%s)", toolName, arguments)
+	if reason != "" {
+		content = fmt.Sprintf("%s\n原因: %s", content, reason)
+	}
 	return LogEntry{
 		Title:   "工具确认",
 		Content: content,

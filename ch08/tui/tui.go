@@ -299,9 +299,27 @@ func (m *TuiViewModel) handleStreamEvent(event ch08.MessageVO) {
 		if event.ToolConfirmationRequest == nil {
 			return
 		}
-		m.logs = append(m.logs, NewToolConfirmation(event.ToolConfirmationRequest.ToolName, event.ToolConfirmationRequest.Arguments))
+		m.logs = append(m.logs, NewToolConfirmation(event.ToolConfirmationRequest.ToolName, event.ToolConfirmationRequest.Arguments, event.ToolConfirmationRequest.Reason))
 		m.state = stateAwaitingConfirmation
 		m.selectedConfirmIdx = 0
+	case ch08.MessageTypeToolEvent:
+		if event.ToolEvent == nil {
+			return
+		}
+		m.logs = append(m.logs, NewToolEvent(fmt.Sprintf("%s %s: %s", event.ToolEvent.ToolName, event.ToolEvent.Stage, event.ToolEvent.Message)))
+		m.refreshLogsViewportContent()
+	case ch08.MessageTypeAudit:
+		if event.Audit == nil {
+			return
+		}
+		m.logs = append(m.logs, NewAudit(formatAudit(event.Audit)))
+		m.refreshLogsViewportContent()
+	case ch08.MessageTypeRuntimeInfo:
+		if event.RuntimeInfo == nil {
+			return
+		}
+		m.logs = append(m.logs, NewRuntimeInfo(*event.RuntimeInfo))
+		m.refreshLogsViewportContent()
 	case ch08.MessageTypePolicy:
 		if event.Policy == nil {
 			return
@@ -417,6 +435,23 @@ func (m *TuiViewModel) clearSession() {
 	m.logs = m.logs[:0]
 	m.notice = "会话已清空（仅保留 system prompt）。"
 	m.refreshLogsViewportContent()
+}
+
+func formatAudit(audit *ch08.AuditVO) string {
+	parts := []string{audit.Event}
+	if audit.ToolName != "" {
+		parts = append(parts, "tool="+audit.ToolName)
+	}
+	if audit.Decision != "" {
+		parts = append(parts, "decision="+audit.Decision)
+	}
+	if audit.Result != "" {
+		parts = append(parts, "result="+audit.Result)
+	}
+	if audit.Arguments != "" {
+		parts = append(parts, "args="+audit.Arguments)
+	}
+	return strings.Join(parts, " | ")
 }
 
 func (m *TuiViewModel) abortCurrentTurn() {

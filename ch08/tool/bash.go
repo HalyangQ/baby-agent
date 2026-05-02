@@ -3,14 +3,18 @@ package tool
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os/exec"
 	"runtime"
+	"time"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/shared"
 )
 
-type BashTool struct{}
+type BashTool struct {
+	eventHook EventHook
+}
 
 func NewBashTool() *BashTool {
 	return &BashTool{}
@@ -22,6 +26,25 @@ type BashToolParam struct {
 
 func (t *BashTool) ToolName() AgentTool {
 	return AgentToolBash
+}
+
+func (t *BashTool) RuntimeDescription() string {
+	return fmt.Sprintf("bash tool: regular shell runtime=%s", runtime.GOOS)
+}
+
+func (t *BashTool) SetEventHook(hook EventHook) {
+	t.eventHook = hook
+}
+
+func (t *BashTool) emit(stage, message string) {
+	if t.eventHook == nil {
+		return
+	}
+	t.eventHook(ToolEvent{
+		ToolName: string(t.ToolName()),
+		Stage:    stage,
+		Message:  message,
+	})
 }
 
 func (t *BashTool) Info() openai.ChatCompletionToolUnionParam {
@@ -57,7 +80,10 @@ func (t *BashTool) Execute(ctx context.Context, argumentsInJSON string) (string,
 		cmd = exec.CommandContext(ctx, "sh", "-c", p.Command)
 	}
 
+	start := time.Now()
+	t.emit("execute_start", fmt.Sprintf("running on host shell: %s", p.Command))
 	output, err := cmd.CombinedOutput()
+	t.emit("execute_done", fmt.Sprintf("host shell finished in %s, output_bytes=%d, err=%v", time.Since(start).Round(time.Millisecond), len(output), err))
 	if err != nil {
 		return "", err
 	}

@@ -16,6 +16,9 @@ const (
 	MessageTypePolicy      = "policy"
 	MessageTypeMemory      = "memory"
 	MessageTypeToolConfirm = "tool_confirm"
+	MessageTypeToolEvent   = "tool_event"
+	MessageTypeAudit       = "audit"
+	MessageTypeRuntimeInfo = "runtime_info"
 )
 
 // MessageVO 用于流式展示当前模型流式输出或者状态
@@ -28,6 +31,9 @@ type MessageVO struct {
 	Policy                  *PolicyVO           `json:"policy,omitempty"`
 	Memory                  *MemoryVO           `json:"memory,omitempty"`
 	ToolConfirmationRequest *ToolConfirmationVO `json:"tool_confirmation_request,omitempty"`
+	ToolEvent               *ToolEventVO        `json:"tool_event,omitempty"`
+	Audit                   *AuditVO            `json:"audit,omitempty"`
+	RuntimeInfo             *string             `json:"runtime_info,omitempty"`
 }
 
 // PolicyVO 策略执行状态
@@ -51,4 +57,19 @@ type ToolCallVO struct {
 type ToolConfirmationVO struct {
 	ToolName  string `json:"tool_name"`
 	Arguments string `json:"arguments"`
+	Reason    string `json:"reason"`
+}
+
+type ToolEventVO struct {
+	ToolName string `json:"tool_name"`
+	Stage    string `json:"stage"`
+	Message  string `json:"message"`
+}
+
+type AuditVO struct {
+	Event     string `json:"event"`
+	ToolName  string `json:"tool_name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+	Decision  string `json:"decision,omitempty"`
+	Result    string `json:"result,omitempty"`
 }

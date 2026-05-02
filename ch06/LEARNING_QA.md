@@ -31,7 +31,7 @@
   直接执行：
 
 ```bash
-go run ./ch06/main
+go run ./main
 ```
 
 - **观察记忆更新事件：**
@@ -146,23 +146,23 @@ cat $(pwd)/.babyagent/memory/MEMORY.md
 
 ### 7. 建议代码阅读顺序
 
-- **先看 [main.go](/Users/bytedance/vibe-coding/baby-agent/ch06/main/main.go)：**
+- **先看 [main.go](./main/main.go)：**
   先看这一章把哪些模块组装起来了。你要重点观察前台模型、后台模型、`contextEngine`、`memoryStorage`、`MultiLevelMemory`、`MemoryUpdater`、`policies`、TUI 分别在什么位置接入。尤其要区分 `tool.NewLoadStorageTool(memoryStorage)` 和真正的长期记忆不是同一个系统。
 
-- **再看 [memory.go](/Users/bytedance/vibe-coding/baby-agent/ch06/memory/memory.go)：**
+- **再看 [memory.go](./memory/memory.go)：**
   这是本章最关键的抽象文件之一。你要重点观察 `Memory` 为什么只有 `String`、`Snapshot`、`Update` 三个能力，`MultiLevelMemory` 为什么同时持有 `content`、双存储、`updater`，以及 `MemoryContent.String()` 为什么实际上是 prompt 注入入口。
 
-- **然后看 [update.go](/Users/bytedance/vibe-coding/baby-agent/ch06/memory/update.go)：**
+- **然后看 [update.go](./memory/update.go)：**
   这里决定“记忆怎么被生成”。你要重点观察为什么输入是“旧记忆 + 新消息”，为什么用 XML 标签回传两层记忆，以及 `extractXMLTag()` 这种解析方式的优点和风险。
 
-- **再看 [engine.go](/Users/bytedance/vibe-coding/baby-agent/ch06/context/engine.go)：**
+- **再看 [engine.go](./context/engine.go)：**
   这是 `ch05` 和 `ch06` 的连接点。你要重点观察 `CommitTurn()` 里为什么顺序是“先提交消息，再跑 policy，再更新记忆”，以及 `BuildSystemPrompt()` 是怎么把 `{memory}` 注入系统提示词的。
 
-- **再看 [agent.go](/Users/bytedance/vibe-coding/baby-agent/ch06/agent.go)：**
+- **再看 [agent.go](./agent.go)：**
   这里重点看两件事：一是 memory event 是怎么通过 `viewCh` 送到 TUI 的；二是 `MemorySnapshot()` / `MemoryStatus()` 这类方法为什么只服务于可观察性，不参与模型推理。
 
 - **最后看 TUI 相关文件：**
-  [vo.go](/Users/bytedance/vibe-coding/baby-agent/ch06/vo.go)、[entry.go](/Users/bytedance/vibe-coding/baby-agent/ch06/tui/entry.go)、[tui.go](/Users/bytedance/vibe-coding/baby-agent/ch06/tui/tui.go)。你要重点观察为什么记忆更新被单独做成 `MessageTypeMemory`，以及 `/memory`、`/memory-status` 这类命令怎样把原本隐式的记忆子系统变成可检查状态。
+  [vo.go](./vo.go)、[entry.go](./tui/entry.go)、[tui.go](./tui/tui.go)。你要重点观察为什么记忆更新被单独做成 `MessageTypeMemory`，以及 `/memory`、`/memory-status` 这类命令怎样把原本隐式的记忆子系统变成可检查状态。
 
 - **学习时优先盯这 5 个观察点：**
   你要持续问自己：`memory` 和 `offload + load_storage` 的边界是什么；为什么两层记忆按作用域分；为什么记忆更新用后台模型；为什么记忆是通过 system prompt 注入而不是普通消息回流；为什么 memory update 放在 turn 结束后而不是边对话边写。
