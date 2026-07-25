@@ -34,11 +34,14 @@ type activeStream struct {
 	events <-chan ch06.MessageVO
 	cancel context.CancelFunc
 
-	turnLogLen  int
-	reasonBody  int
-	contentBody int
-	policyBody  int // 当前策略 log entry 的索引
-	memoryBody  int // 当前记忆更新 log entry 的索引
+	turnLogLen   int
+	reasonBody   int
+	contentBody  int
+	policyBody   int // 当前策略 log entry 的索引
+	memoryBody   int // 当前记忆更新 log entry 的索引
+	streamClosed bool
+	doneReceived bool
+	doneErr      error
 }
 
 type TuiViewModel struct {
@@ -142,7 +145,10 @@ func (m *TuiViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleStreamMsg(msg)
 	case streamClosedMsg:
 		if m.active != nil {
-			m.active.events = nil
+			m.active.streamClosed = true
+			if m.active.doneReceived {
+				return m.finalizeActiveStream()
+			}
 		}
 		return m, nil
 	case streamDoneMsg:
@@ -307,11 +313,14 @@ func (m *TuiViewModel) resetOutputSection() {
 }
 
 func (m *TuiViewModel) handleStreamMsg(msg streamMsg) (tea.Model, tea.Cmd) {
-	if m.active == nil || m.active.events == nil {
+	if m.active == nil {
 		return m, nil
 	}
 	m.handleStreamEvent(msg.event)
 	m.refreshLogsViewportContent()
+	if m.active.streamClosed {
+		return m, nil
+	}
 	return m, waitStreamEvent(m.active.events)
 }
 
@@ -321,21 +330,13 @@ func (m *TuiViewModel) handleStreamDone(msg streamDoneMsg) (tea.Model, tea.Cmd) 
 		return m, nil
 	}
 
-	m.stopActiveStream()
-	if m.state == stateAborting {
-		m.rollbackTurn()
-		m.notice = "已取消本轮输入。"
-		m.state = stateIdle
+	m.active.doneReceived = true
+	m.active.doneErr = msg.err
+	if !m.active.streamClosed {
 		return m, nil
 	}
 
-	if msg.err != nil {
-		m.logs = append(m.logs, NewError(msg.err.Error()))
-	}
-	m.logs = append(m.logs, NewBorder())
-	m.state = stateIdle
-	m.refreshLogsViewportContent()
-	return m, nil
+	return m.finalizeActiveStream()
 }
 
 func (m *TuiViewModel) startNewTurn(query string) (tea.Model, tea.Cmd) {
@@ -426,6 +427,48 @@ func (m *TuiViewModel) stopActiveStream() {
 		m.active.cancel()
 	}
 	m.active = nil
+}
+
+func (m *TuiViewModel) finalizePendingStates() {
+	if m.active == nil {
+		return
+	}
+	success := m.active.doneErr == nil
+	if m.active.policyBody >= 0 && m.active.policyBody < len(m.logs) {
+		m.logs[m.active.policyBody].UpdatePolicyCompleted(success)
+		m.active.policyBody = -1
+	}
+	if m.active.memoryBody >= 0 && m.active.memoryBody < len(m.logs) {
+		m.logs[m.active.memoryBody].UpdateMemoryCompleted(success)
+		m.active.memoryBody = -1
+	}
+}
+
+func (m *TuiViewModel) finalizeActiveStream() (tea.Model, tea.Cmd) {
+	if m.active == nil {
+		m.state = stateIdle
+		return m, nil
+	}
+
+	m.finalizePendingStates()
+
+	err := m.active.doneErr
+	if m.state == stateAborting {
+		m.rollbackTurn()
+		m.notice = "已取消本轮输入。"
+		m.stopActiveStream()
+		m.state = stateIdle
+		return m, nil
+	}
+
+	m.stopActiveStream()
+	if err != nil {
+		m.logs = append(m.logs, NewError(err.Error()))
+	}
+	m.logs = append(m.logs, NewBorder())
+	m.state = stateIdle
+	m.refreshLogsViewportContent()
+	return m, nil
 }
 
 func (m *TuiViewModel) scrollUp(n int) {
